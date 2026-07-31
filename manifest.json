@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "一键整页截图",
+  "version": "1.0.0",
+  "description": "点一下图标即可保存当前页面的整页长图，等同于 DevTools 的 Capture full size screenshot。",
+  "homepage_url": "https://github.com/firmamento73/fullpage-shot",
+  "author": "firmamento73",
+  "permissions": ["debugger", "activeTab", "downloads"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "整页截图 (Alt+Shift+S)",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "commands": {
+    "_execute_action": {
+      "suggested_key": {
+        "default": "Alt+Shift+S"
+      },
+      "description": "对当前标签页整页截图"
+    }
+  }
+}

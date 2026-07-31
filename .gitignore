@@ -1,0 +1,16 @@
+# 打包产物 —— 由 CI 生成，不入库
+*.zip
+*.crx
+*.pem
+dist/
+
+# 系统与编辑器
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# 依赖（本项目零依赖，留作以后备用）
+node_modules/
