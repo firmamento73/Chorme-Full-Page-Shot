@@ -10,6 +10,8 @@ Chrome 扩展，提供 **F12 整页截图**和**滚动归档**两种模式：普
 
 ## 安装
 
+从 [最新 Release](https://github.com/firmamento73/Chorme-Full-Page-Shot/releases/latest) 的 Assets 下载 `fullpage-shot-版本号.zip`。
+
 1. 将发布 ZIP **真正解压**到一个固定文件夹。
 2. 在 Chrome 打开 `chrome://extensions`，开启右上角“开发者模式”。
 3. 点击“加载未打包的扩展程序”，选择直接包含 `manifest.json` 的文件夹。

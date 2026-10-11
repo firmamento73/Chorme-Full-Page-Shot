@@ -16,6 +16,8 @@ This mode captures the currently retained full document. It cannot reconstruct r
 
 ## Install and use
 
+Download `fullpage-shot-VERSION.zip` from the Assets of the [latest release](https://github.com/firmamento73/Chorme-Full-Page-Shot/releases/latest).
+
 Extract the release ZIP. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select the folder containing `manifest.json`. Chrome 118+ is required. No build step is needed.
 
 Open the target page in your logged-in browser and close its DevTools. Click the extension icon or press `Alt+Shift+S`. Select the whole document or a scroll container. Version **2.2.0** defaults to background capture: the job remains attached to the original tab while you browse elsewhere. Jobs on different tabs run independently; the popup can pause other jobs. Existing debugger permission is sufficient; no new host permissions are added. Disable the background option for foreground compatibility mode.
