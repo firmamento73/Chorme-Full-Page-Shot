@@ -1,35 +1,45 @@
 {
   "manifest_version": 3,
-  "name": "一键整页截图",
-  "version": "1.0.0",
-  "description": "点一下图标即可保存当前页面的整页长图，等同于 DevTools 的 Capture full size screenshot。",
-  "homepage_url": "https://github.com/firmamento73/fullpage-shot",
+  "name": "整页截图 · 滚动归档",
+  "version": "2.2.0",
+  "minimum_chrome_version": "118",
+  "description": "F12 原版整页截图与自动滚动归档，支持连续长图、PDF 和收藏总览。",
+  "homepage_url": "https://github.com/firmamento73/Chorme-Full-Page-Shot",
   "author": "firmamento73",
-  "permissions": ["debugger", "activeTab", "downloads"],
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "debugger",
+    "storage",
+    "downloads"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "action": {
-    "default_title": "整页截图 (Alt+Shift+S)",
+    "default_title": "整页截图 · 滚动归档",
+    "default_popup": "popup.html",
     "default_icon": {
-      "16": "icons/icon16.png",
-      "32": "icons/icon32.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
     }
-  },
-  "icons": {
-    "16": "icons/icon16.png",
-    "32": "icons/icon32.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
   },
   "commands": {
     "_execute_action": {
       "suggested_key": {
         "default": "Alt+Shift+S"
       },
-      "description": "对当前标签页整页截图"
+      "description": "打开网页归档面板"
     }
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self'; img-src 'self' blob: data:;"
+  },
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
   }
 }

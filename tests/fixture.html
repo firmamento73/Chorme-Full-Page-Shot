@@ -1,0 +1,27 @@
+<!doctype html><html><head><meta charset="utf-8"><title>滚动归档测试页</title><style>
+*{box-sizing:border-box}body{margin:0;font:14px/1.4 system-ui;color:#163c35;background:#f5f8f6}header{position:fixed;top:0;left:0;width:100%;height:48px;background:#173c35;color:white;z-index:10;padding:12px}footer{position:fixed;bottom:0;left:0;width:100%;height:32px;background:#e0ebe5;z-index:10;padding:6px}.content{margin:58px 20px 42px}.container{height:620px;overflow:auto;border:3px solid #2a8d76;margin:80px 40px 0}.list{position:relative}.note-item{height:170px;width:calc((100% - 24px)/3);position:absolute;border:1px solid #bbd4c9;background:white;padding:6px;border-radius:6px}.cover{display:block;width:100%;height:112px;object-fit:cover}.title{height:20px;overflow:hidden;white-space:nowrap}.author{font-size:12px}.end{position:absolute;width:100%;height:32px;text-align:center}button{position:fixed;right:10px;top:60px}
+</style></head><body><header>固定导航：导出中不应重复</header><div id="root" class="content"><div class="list" id="list"></div></div><footer>固定底栏</footer><script>
+const params=new URLSearchParams(location.search),mode=params.get('mode')||'lazy',count=Number(params.get('count')||36),virtual=mode==='virtual',infinite=mode==='infinite',container=mode==='container',broken=mode==='broken';
+const root=document.getElementById('root'),list=document.getElementById('list');if(container){root.className='container';}
+let available=infinite?18:count,seen=new Set(),loading=false;
+const scrollRoot=container?root:window;
+function svg(i){return 'data:image/svg+xml;base64,'+btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="500" height="160"><rect width="500" height="160" fill="hsl(${i*31%360},55%,75%)"/><text x="20" y="90" font-size="38">NOTE ${i+1}</text></svg>`);}
+const io=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){const img=entry.target;if(!img.dataset.started){img.dataset.started='1';setTimeout(()=>{img.src=broken&&img.dataset.index==='2'?'/missing-image.png':svg(Number(img.dataset.index));},120);}}},{root:container?root:null});
+function render(){
+ const y=container?root.scrollTop:scrollY,listTop=container?0:58,first=virtual?Math.max(0,Math.floor((y-listTop)/180)-2)*3:0,last=virtual?Math.min(available,first+30):available;
+ for(const card of list.querySelectorAll('.note-item')){const n=Number(card.dataset.index);if(n<first||n>=last){io.unobserve(card.querySelector('img'));card.remove();}}
+ for(let i=first;i<last;i++){
+  if(list.querySelector(`[data-index="${i}"]`))continue;
+  const card=document.createElement('section');card.className='note-item';card.dataset.archiveCard='';card.dataset.index=i;card.style.top=Math.floor(i/3)*180+'px';card.style.left=(i%3)*100/3+'%';
+  const link=document.createElement('a');link.href='/explore/'+String(i).padStart(24,'0')+'?token=test';link.dataset.archiveId=String(i);link.style.cssText='color:inherit;text-decoration:none';
+  const img=document.createElement('img');img.className='cover';img.dataset.index=i;img.alt='NOTE '+(i+1);link.append(img);
+  const title=document.createElement('div');title.className='title';title.textContent=i===3?'特殊标题 <'+'/script><img src=x onerror=alert(1)>':'收藏笔记 '+(i+1);link.append(title);
+  const author=document.createElement('div');author.className='author';author.innerHTML='<span class="name">作者 '+(i%7)+'</span>';link.append(author);card.append(link);list.append(card);io.observe(img);seen.add(i);
+ }
+ list.style.height=Math.ceil(available/3)*180+32+'px';
+ list.querySelector('.end')?.remove();if(available===count&&params.get('end')!=='no'){const end=document.createElement('div');end.className='end';end.dataset.archiveEnd='';end.textContent='没有更多内容';end.style.top=Math.ceil(available/3)*180+'px';list.append(end);}
+}
+function scroll(){render();const p=container?root.scrollTop:scrollY,max=container?root.scrollHeight-root.clientHeight:document.documentElement.scrollHeight-innerHeight;if(infinite&&p>=max-120&&available<count&&!loading){loading=true;setTimeout(()=>{available=Math.min(count,available+18);loading=false;render();},700);}}
+scrollRoot.addEventListener('scroll',scroll);render();
+window.testState=()=>({available,rendered:list.querySelectorAll('.note-item').length,seen:seen.size});
+</script></body></html>

@@ -1,0 +1,10 @@
+<!doctype html><meta charset="utf-8"><title>像素接缝验证</title><style>body{margin:0}canvas{display:block}#end{height:40px;font:16px system-ui;background:#eef0ed}</style><canvas id="page" width="1200" height="4600"></canvas><div id="end" data-archive-end>没有更多内容</div><script>
+const canvas=document.getElementById('page'),ctx=canvas.getContext('2d'),pixels=ctx.createImageData(1200,4600);
+for(let y=0;y<4600;y++)for(let x=0;x<1200;x++){
+ const i=(y*1200+x)*4;
+ pixels.data[i]=((Math.imul(y+1,2654435761)>>>24)+Math.floor(x/30)*17)%251;
+ pixels.data[i+1]=((Math.imul(y+1,1597334677)>>>24)+Math.floor(x/30)*29)%251;
+ pixels.data[i+2]=((Math.imul(y+1,3812015801)>>>24)+Math.floor(x/30)*3)%251;pixels.data[i+3]=255;
+}
+ctx.putImageData(pixels,0,0);
+</script>

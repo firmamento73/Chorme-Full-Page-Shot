@@ -14,3 +14,7 @@ desktop.ini
 
 # 依赖（本项目零依赖，留作以后备用）
 node_modules/
+
+# Python test cache
+__pycache__/
+*.pyc
