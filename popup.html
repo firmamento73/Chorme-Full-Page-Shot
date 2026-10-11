@@ -1,0 +1,31 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>滚动归档</title><link rel="stylesheet" href="ui.css"></head><body class="popup">
+<header class="brand"><img src="icons/icon-48.png" width="36" height="36" alt=""><div><h1>整页截图 · 滚动归档</h1><p class="muted">2.2.0 · 选择适合页面的截图方式</p></div></header>
+<div class="mode-switch" role="group" aria-label="截图方式"><button id="modeScroll" aria-pressed="true">滚动归档</button><button id="modeClassic" aria-pressed="false">F12 整页截图</button></div>
+<section id="classicPanel" hidden>
+<p>与 F12 的「Capture full size screenshot」使用同一截图接口，一次生成整页 PNG。</p>
+<label><input id="classicPreload" type="checkbox" checked> 截图前预滚动，触发懒加载</label>
+<label><input id="classicHide" type="checkbox" checked> 隐藏悬浮控件（结束后恢复）</label>
+<button id="classicStart" class="primary block" disabled>一键 F12 整页截图</button>
+<p id="classicStatus" class="status" role="status"></p>
+<p class="muted">保存到下载目录的「整页截图」。预滚动最多 200 屏；虚拟列表回收的内容仍可能缺失，长收藏列表建议用滚动归档。超过安全尺寸会提示切换模式。</p>
+</section>
+<section id="scrollPanel">
+<p id="title"></p><p id="selection" class="muted"></p>
+<div class="row"><button id="choose">选择滚动区域</button><button id="reset">整个网页</button></div>
+<label><input id="seamless" type="checkbox" checked> 无缝拼接（匹配重复区，失败时重试）</label>
+<label><input id="background" type="checkbox" checked> 切换标签页后继续采集</label>
+<label><input id="hideOverlays" type="checkbox" checked> 采集时隐藏悬浮控件（结束后恢复）</label>
+<div class="row"><button id="exclude">点选排除元素</button><button id="clearExclusions">清空点选排除</button></div>
+<p id="exclusions" class="muted"></p>
+<label><input id="overview" type="checkbox" checked> 同时采集笔记总览（小红书／兼容卡片）</label>
+<label>每段最多等 <input id="wait" type="number" min="3" max="60" value="15"> 秒</label>
+<label><input id="incomplete" type="checkbox"> 超时也保存，并标记缺失</label>
+<button id="start" class="primary block" disabled>从顶部开始采集</button>
+<div class="row"><button id="pause" hidden>暂停</button><button id="stop" hidden>结束采集</button><button id="resume" hidden>继续上次任务</button></div>
+<div id="jobPanel" hidden><p id="progress"></p><button id="result" class="block">查看已保存结果 / 导出</button></div>
+</section>
+<div id="activeJobs"></div>
+<p id="status" class="status"></p>
+<p id="scrollHelp" class="muted">点击开始后面板自动关闭，等待启动即可。默认可切换到其他标签页；手动滚动原页面会暂停。重新打开面板可查看进度。</p>
+<p class="muted">两种模式均需关闭目标页面的 F12 开发者工具。快捷键 Alt+Shift+S。</p>
+<script src="core.js"></script><script src="popup.js"></script></body></html>

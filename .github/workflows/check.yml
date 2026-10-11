@@ -1,0 +1,30 @@
+name: Validate and package
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check JavaScript
+        run: |
+          for file in *.js tests/*.js; do
+            node --check "$file"
+          done
+      - name: Test core and pixel alignment
+        run: node --test tests/core.test.js tests/seams.test.js
+      - name: Package installable extension
+        run: python scripts/package.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fullpage-shot-extension
+          path: dist/fullpage-shot-*.zip
