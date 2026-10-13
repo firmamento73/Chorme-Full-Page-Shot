@@ -14,6 +14,13 @@ async function startClassic(request){
   const tab=await chrome.tabs.get(request.tabId);
   if(!C.supported(tab.url))throw new Error('请在普通网页中使用 F12 整页截图。');
   if(classicTasks.has(tab.id)||[...tasks.values()].some(s=>s.tabId===tab.id))throw new Error('此页面正在截图或采集，请等待完成或先暂停。');
+  await inject(tab.id);
+  const layout=await page(tab.id,'scrollTargets');
+  if(layout.internal&&!layout.documentScrollable){
+    const job=await start({tabId:tab.id,options:{background:true,seamless:true,hideOverlays:request.options?.hideOverlays!==false,overview:false}});
+    await classicPhase({tabId:tab.id,title:tab.title||'网页',url:tab.url},'正文位于内部滚动区域，已转为滚动归档；完成后请在结果页导出连续长图。','redirected');
+    return {mode:'scroll',jobId:job.id};
+  }
   const state={tabId:tab.id,detached:false};classicTasks.set(tab.id,state);
   const result={tabId:tab.id,url:tab.url,status:'running',phase:'正在准备 F12 整页截图',title:tab.title||'网页'};
   try{await classicPhase(result,result.phase);}catch(e){classicTasks.delete(tab.id);throw e;}
