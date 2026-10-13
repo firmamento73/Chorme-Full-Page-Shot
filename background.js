@@ -8,7 +8,7 @@ async function bounded(label,fn,limit=15000) {
   try {return await Promise.race([Promise.resolve().then(fn),new Promise((_,reject)=>{timer=setTimeout(()=>reject(new Error(`${label}超时，已保存结果保留。`)),limit);})]);}
   finally{clearTimeout(timer);}
 }
-async function inject(tabId) {await bounded('载入采集组件',()=>chrome.scripting.executeScript({target:{tabId},files:['overlays.js','collector.js']}));}
+async function inject(tabId) {await bounded('载入采集组件',()=>chrome.scripting.executeScript({target:{tabId},files:['overlays.js','scroll-target.js','collector.js']}));}
 async function page(tabId,action,arg) {
   const result=await bounded('检查网页',()=>chrome.scripting.executeScript({target:{tabId},func:(action,arg)=>{
     try {return {ok:true,value:globalThis.FullPageCollector[action](arg)};}catch(e){return {ok:false,error:e.message};}
@@ -194,7 +194,7 @@ async function run(job,state,resume) {
     await phase(job,'正在等待截图提示栏和页面尺寸稳定');
     await waitForViewport(job,state);
     prepared=true;
-    const preparedInfo=await page(job.tabId,'prepare',{top:!resume||!sameDocument||!job.last,position:sameDocument?job.last?.position:undefined,hideOverlays:job.options.hideOverlays,background:job.options.background!==false});
+    const preparedInfo=await page(job.tabId,'prepare',{resolveTarget:!resume||!sameDocument,top:!resume||!sameDocument||!job.last,position:sameDocument?job.last?.position:undefined,hideOverlays:job.options.hideOverlays,background:job.options.background!==false});
     overlayCSS=preparedInfo.overlayCSS;
     await bounded('应用浮层过滤',()=>chrome.scripting.insertCSS({target:{tabId:job.tabId},css:overlayCSS,origin:'USER'}));
     job.viewport=preparedInfo.viewport;job.documentToken=preparedInfo.token;job.selection=preparedInfo.selection;job.selectionKey=preparedInfo.selectionKey;job.exclusionKey=preparedInfo.exclusionKey;job.manualExclusions=preparedInfo.manualExclusions;
@@ -273,7 +273,7 @@ async function handle(m,sender) {
   if(m.type==='ACTIVE')return (await DB.jobs()).filter(j=>tasks.has(j.id)).map(j=>({id:j.id,tabId:j.tabId,title:j.title,tileCount:j.tileCount,phase:j.phase}));
   if(m.type==='INFO') {
     const tab=await chrome.tabs.get(m.tabId);if(!C.supported(tab.url))return {supported:false};
-    await inject(tab.id);return {supported:true,...await page(tab.id,'info')};
+    await inject(tab.id);return {supported:true,...await page(tab.id,'info'),scrollTargets:await page(tab.id,'scrollTargets')};
   }
   if(['CHOOSE','RESET','EXCLUDE','CLEAR_EXCLUSIONS'].includes(m.type)) {if(classicTasks.has(m.tabId)||[...tasks.values()].some(state=>state.tabId===m.tabId))throw new Error('请先等待此标签页截图完成或暂停采集，再调整选区。');await inject(m.tabId);return page(m.tabId,({CHOOSE:'choose',RESET:'reset',EXCLUDE:'exclude',CLEAR_EXCLUSIONS:'clearExclusions'})[m.type]);}
   if(m.type==='LAST') {

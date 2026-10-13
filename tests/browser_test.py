@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 from PIL import Image,ImageChops
 import fitz
 ROOT=Path(__file__).resolve().parents[1]
-OUTPUT=ROOT/'dist'/('classic-artifacts' if os.environ.get('BROWSER_TEST_CLASSIC') else 'seam-artifacts' if os.environ.get('BROWSER_TEST_SEAMS') else 'independent-artifacts' if os.environ.get('BROWSER_TEST_INDEPENDENT') else 'overlay-artifacts' if os.environ.get('BROWSER_TEST_OVERLAYS') else 'test-artifacts')
+OUTPUT=ROOT/'dist'/('dashboard-artifacts' if os.environ.get('BROWSER_TEST_DASHBOARD') else 'classic-artifacts' if os.environ.get('BROWSER_TEST_CLASSIC') else 'seam-artifacts' if os.environ.get('BROWSER_TEST_SEAMS') else 'independent-artifacts' if os.environ.get('BROWSER_TEST_INDEPENDENT') else 'overlay-artifacts' if os.environ.get('BROWSER_TEST_OVERLAYS') else 'test-artifacts')
 class Quiet(http.server.SimpleHTTPRequestHandler):
  def log_message(self,*args):pass
 async def main():
@@ -121,6 +121,43 @@ async def main():
    assert all(not t['incomplete'] for t in data['tiles'])
    results.append({'case':name,'status':job['status'],'tiles':len(data['tiles']),'items':len(data['items']),'strips':job['strip']+1})
    print('PASS',results[-1],flush=True)
+  if os.environ.get('BROWSER_TEST_DASHBOARD'):
+   async def dashboard(kind):
+    page=await context.new_page();ident=await register(page);await page.goto(origin+'/tests/dashboard-fixture.html?kind='+kind+'#/flow/internal/todo');await send({'type':'INFO','tabId':ident});return page,ident
+   async def verify_dashboard(page,ident,job,label):
+    assert job['status']=='complete',job['reason']
+    assert job['tileCount']>1 and job['strip']==0,(job['tileCount'],job['strip'])
+    assert 'todo-body' in job['selection'],job['selection']
+    assert await page.evaluate('document.querySelector("aside").scrollTop')==0
+    assert await page.evaluate('getComputedStyle(document.querySelector(".app")).visibility')=='visible'
+    assert await page.evaluate('getComputedStyle(document.querySelector(".floating")).visibility')=='visible'
+    assert await page.evaluate('getComputedStyle(testRoot).scrollSnapType')=='y mandatory'
+    review=await context.new_page();await review.goto(origin+'/review.html?job='+job['id']);await review.wait_for_function('typeof job!=="undefined" && job && tiles.length>0')
+    await review.locator('#png').click();await review.wait_for_function('!busy && document.getElementById("status").textContent.includes("已交给")',timeout=90000)
+    image=Image.open(next(OUTPUT.glob('*_'+job['id'][:8]+'_连续长图.png'))).convert('RGB');assert image.height==4200,image.size
+    for row in range(80):
+     for offset in [0,26,51]:assert image.getpixel((12,row*52+offset))==(80+row,140+row%70,210-row),(label,row,offset,image.getpixel((12,row*52+offset)))
+    results.append({'case':label,'tiles':job['tileCount'],'strips':1,'size':image.size,'rowsVerified':80});print('PASS',results[-1],flush=True);await review.close()
+   for kind in ['hidden','auto','shadow']:
+    page,ident=await dashboard(kind);job=await start(ident,overview=False,background=True);job=await wait_job(ident);await verify_dashboard(page,ident,job,'automatic '+kind+' scrolling and no lost/duplicate rows')
+   page,ident=await dashboard('hidden');redirect=await send({'type':'CLASSIC_START','tabId':ident,'options':{'preload':True,'hideOverlays':True}});assert redirect['mode']=='scroll',redirect
+   job=await wait_job(ident);await verify_dashboard(page,ident,job,'F12 automatically routes internal document to scrolling archive')
+   page,ident=await dashboard('two');job=await start(ident,overview=False);job=await wait_job(ident)
+   assert job['status']=='paused' and job['tileCount']==0 and '多个' in job['reason'],job['reason']
+   await send({'type':'CHOOSE','tabId':ident});await page.locator('.scroll-body').last.locator('.row').first.click()
+   info=await send({'type':'INFO','tabId':ident});assert info['selectionMode']=='manual' and info['selected'],info
+   job=await start(ident,overview=False);job=await wait_job(ident);await verify_dashboard(page,ident,job,'ambiguous panes require manual selection; hidden scroll body can be picked')
+   assert await page.locator('.scroll-body').first.evaluate('e=>e.scrollTop')==0
+   page,ident=await dashboard('locked');job=await start(ident,overview=False);job=await wait_job(ident)
+   assert job['status']=='paused' and job['tileCount']==1 and '没有响应滚动' in job['reason'],job['reason']
+   results.append({'case':'blocked scrolling produces an actionable pause instead of endless duplicate capture'})
+   page,ident=await dashboard('hidden');job=await start(ident,overview=False);first=await wait_job(ident,tiles_at_least=2);await send({'type':'PAUSE','jobId':first['id']});paused=await wait_job(ident)
+   await send({'type':'START','tabId':ident,'resume':paused['id']});job=await wait_job(ident);await verify_dashboard(page,ident,job,'automatic container retained across pause/resume')
+   page,ident=await dashboard('hidden');job=await start(ident,overview=False);first=await wait_job(ident,tiles_at_least=1);await send({'type':'PAUSE','jobId':first['id']});paused=await wait_job(ident)
+   await page.evaluate('const old=testRoot;testRoot=old.cloneNode(true);old.replaceWith(testRoot)')
+   await send({'type':'START','tabId':ident,'resume':paused['id']});job=await wait_job(ident);assert job['status']=='paused' and '已被网页替换' in job['reason'],job['reason']
+   results.append({'case':'replaced container pauses resume without switching to another region'})
+   (OUTPUT/'dashboard-results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2));print('PASS dashboard suite');await browser.close();server.shutdown();return
   if os.environ.get('BROWSER_TEST_CLASSIC'):
    async def classic(ident,**options):
     await send({'type':'CLASSIC_START','tabId':ident,'options':options})

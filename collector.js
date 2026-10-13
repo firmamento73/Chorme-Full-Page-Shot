@@ -1,11 +1,11 @@
 // Isolated content-script world. Site globals/cookies are not read.
 (function() {
   'use strict';
-  const version='2.2.0';
+  const version='2.2.1';
   if(globalThis.FullPageCollector?.version===version)return;
   globalThis.FullPageCollector?.cleanup();
   const token=crypto.randomUUID();
-  let selected=null,selectionKey='document',running=false,backgroundMode=false,interruption='',restore=[],picker=null,cancelPicker=null;
+  let selected=null,selectionKey='document',selectionMode='auto',running=false,backgroundMode=false,interruption='',restore=[],picker=null,cancelPicker=null;
   const documentRoot=()=>document.scrollingElement || document.documentElement;
   const root=()=>selected?.isConnected?selected:documentRoot();
   const isDocument=e=>e===documentRoot();
@@ -19,13 +19,10 @@
     if(selected&&!selected.isConnected)throw new Error('所选区域已被网页替换，请重新选择区域并创建任务。');
   }
   function baseArea() {
-    const e=root();
-    if(isDocument(e))return {x:0,y:0,width:innerWidth,height:innerHeight};
-    const r=e.getBoundingClientRect(),x=Math.max(0,r.left+e.clientLeft),y=Math.max(0,r.top+e.clientTop);
-    return {x,y,width:Math.min(innerWidth,r.left+e.clientLeft+e.clientWidth)-x,height:Math.min(innerHeight,r.top+e.clientTop+e.clientHeight)-y};
+    return ArchiveScrollTargets.box(root());
   }
-  const overlays=new ArchiveOverlays(root,baseArea,pos);
-  const area=()=>baseArea();
+  const area=()=>ArchiveScrollTargets.visibleArea(root());
+  const overlays=new ArchiveOverlays(root,area,pos);
   function loaded(img) {return !!img.currentSrc&&img.complete&&img.naturalWidth>0;}
   function noteCards(a) {
     const scope=isDocument(root())?document:root(),found=new Map();
@@ -78,16 +75,23 @@
   }
   function move(target) {
     assert();const e=root();
+    const before=pos(),expected=Math.max(0,Math.min(target,e.scrollHeight-e.clientHeight));
     if(isDocument(e))window.scrollTo({top:target,left:scrollX,behavior:'instant'});
     else e.scrollTo({top:target,left:e.scrollLeft,behavior:'instant'});
+    if(Math.abs(expected-before)>2&&Math.abs(pos()-before)<.5)throw new Error('所选区域没有响应滚动，请点击“选择滚动区域”并点正文列表；若使用自绘滚动条，当前可能不支持。');
     return pos();
   }
   function cleanup() {
     cancelPicker?.();running=false;backgroundMode=false;overlays.stop();for(const fn of restore.splice(0))fn();interruption='';
   }
   function prepare(options) {
-    cleanup();backgroundMode=options?.background===true;assert();const e=root();
-    for(const property of ['scroll-behavior','overflow-anchor']) {
+    cleanup();backgroundMode=options?.background===true;
+    if(!options?.wholeDocument&&selectionMode==='auto'&&options?.resolveTarget!==false){
+      const found=ArchiveScrollTargets.resolve(),next=isDocument(found.element)?null:found.element;
+      if(next!==selected){selected=next;selectionKey=selected?crypto.randomUUID():'document';}
+    }
+    assert();const e=root();
+    for(const property of ['scroll-behavior','overflow-anchor','scroll-snap-type']) {
       const value=e.style.getPropertyValue(property),priority=e.style.getPropertyPriority(property);
       e.style.setProperty(property,property==='scroll-behavior'?'auto':'none','important');
       restore.push(()=>value?e.style.setProperty(property,value,priority):e.style.removeProperty(property));
@@ -96,7 +100,7 @@
     if(options?.top)move(0);
     if(Number.isFinite(options?.position))move(options.position);
     overlays.start(options?.hideOverlays!==false);overlays.check();
-    return {token,url:location.href,title:document.title,viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},selectionKey,overlayCSS:overlays.css(),exclusionKey:overlays.key,manualExclusions:overlays.count(),selection:isDocument(e)?'整个网页':`${e.tagName.toLowerCase()}${e.id?'#'+e.id:''}`};
+    return {token,url:location.href,title:document.title,viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},selectionKey,selectionMode,overlayCSS:overlays.css(),exclusionKey:overlays.key,manualExclusions:overlays.count(),selection:isDocument(e)?'整个网页':`${selectionMode==='auto'?'自动识别：':''}${e.tagName.toLowerCase()}${e.id?'#'+e.id:''}`};
   }
   function choose(kind='scroll') {
     cleanup();picker?.remove();picker=document.createElement('div');
@@ -107,15 +111,12 @@
     document.documentElement.append(picker);
     function candidate(el) {
       if(kind==='exclude')return overlays.candidate(el);
-      for(let p=el;p&&p!==document.body&&p!==document.documentElement;p=p.parentElement) {
-        const s=getComputedStyle(p);if(/auto|scroll/.test(s.overflowY)&&p.scrollHeight>p.clientHeight+5&&p.clientHeight>=100)return p;
-      }
-      return documentRoot();
+      return ArchiveScrollTargets.closest(el);
     }
     const hover=ev=>{const e=candidate(ev.composedPath()[0]),r=isDocument(e)?{left:0,top:0,width:innerWidth,height:innerHeight}:e.getBoundingClientRect();shadow.querySelector('div').style.cssText=`left:${r.left}px;top:${r.top}px;width:${r.width}px;height:${r.height}px`;};
     function finish() {document.removeEventListener('mousemove',hover,true);document.removeEventListener('click',click,true);document.removeEventListener('keydown',key,true);picker?.remove();picker=null;cancelPicker=null;}
     cancelPicker=finish;
-    const click=ev=>{ev.preventDefault();ev.stopImmediatePropagation();const element=candidate(ev.composedPath()[0]);if(kind==='exclude'){if(!overlays.protected(element))overlays.add(element);}else{selected=element;selectionKey=isDocument(selected)?'document':crypto.randomUUID();}finish();};
+    const click=ev=>{ev.preventDefault();ev.stopImmediatePropagation();const element=candidate(ev.composedPath()[0]);if(kind==='exclude'){if(!overlays.protected(element))overlays.add(element);}else{selected=element;selectionMode='manual';selectionKey=isDocument(selected)?'document':crypto.randomUUID();}finish();};
     const key=ev=>{if(ev.key==='Escape'){ev.preventDefault();finish();}};
     document.addEventListener('mousemove',hover,true);document.addEventListener('click',click,true);document.addEventListener('keydown',key,true);
     return true;
@@ -126,10 +127,11 @@
     interruption='检测到手动滚动或停止操作，已暂停。';
   },{capture:true,passive:true});
   globalThis.FullPageCollector={version,inspect,move,prepare,cleanup,choose,
-    classicPrepare(options){const old=selected;selected=null;try{const info=prepare({top:true,background:true,hideOverlays:options?.hideOverlays});restore.push(()=>{selected=old;});return info;}catch(e){selected=old;throw e;}},
+    classicPrepare(options){const old=selected;selected=null;try{const info=prepare({top:true,background:true,wholeDocument:true,hideOverlays:options?.hideOverlays});restore.push(()=>{selected=old;});return info;}catch(e){selected=old;throw e;}},
     classicCheck(){overlays.sync();overlays.check();return true;},
     exclude(){return choose('exclude');},clearExclusions(){cleanup();overlays.clear();return true;},
-    reset(){cleanup();selected=null;selectionKey='document';return true;},
-    info(){return {token,title:document.title,url:location.href,visibility:document.visibilityState,viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},selectionKey,selected:!isDocument(root()),running,manualExclusions:overlays.count(),exclusionKey:overlays.key};}
+    reset(){cleanup();selected=null;selectionMode='auto';selectionKey='document';return true;},
+    scrollTargets(){const found=ArchiveScrollTargets.candidates();return {internal:found.length>0,documentScrollable:ArchiveScrollTargets.documentScrollable()};},
+    info(){return {token,title:document.title,url:location.href,visibility:document.visibilityState,viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},selectionKey,selectionMode,selected:!isDocument(root()),running,manualExclusions:overlays.count(),exclusionKey:overlays.key};}
   };
 })();
