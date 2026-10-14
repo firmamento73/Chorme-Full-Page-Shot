@@ -1,5 +1,6 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>归档结果</title><link rel="stylesheet" href="ui.css"></head><body><main>
 <div class="row"><span class="badge">本地归档</span><select id="history" aria-label="归档历史"></select></div>
+<p><a href="settings.html" target="_blank">保存位置</a> · <span id="destination" class="muted"></span></p>
 <h1 id="title">正在读取结果</h1><p id="source"></p>
 <div class="panel"><p id="counts"></p><p id="reason" class="status warning"></p><details id="warnings" hidden><summary>采集记录与接缝提示</summary><p id="warningText" class="status"></p></details>
 <div class="row"><label>图片格式 <select id="pngMode"><option value="single">单张连续长图</option><option value="split">分段长图</option></select></label><label>PDF 格式 <select id="pdfMode"><option value="continuous">单页连续长 PDF</option><option value="paged">A4 分页 PDF</option></select></label></div>
@@ -8,4 +9,4 @@
 <p id="status" class="status"></p><small>单张长图和单页长 PDF 不插入页间空隙；分段长图和 A4 PDF 适合分页查看。连续导出会先匹配重叠像素、裁掉重复区；匹配不上时才提示。收藏封面来自采集时的浏览器截图。</small></div>
 <div class="row tabs"><button id="screens" aria-pressed="true">截图</button><button id="notes" aria-pressed="false">笔记总览</button><input id="search" type="search" placeholder="搜索标题或作者" hidden></div>
 <p id="viewHint" class="muted"></p><div id="grid" class="grid"></div><button id="more" class="block" hidden>加载更多</button>
-</main><script src="vendor/pdf-lib.min.js"></script><script src="core.js"></script><script src="seams.js"></script><script src="db.js"></script><script src="png-stream.js"></script><script src="export.js"></script><script src="review.js"></script></body></html>
+</main><script src="vendor/pdf-lib.min.js"></script><script src="core.js"></script><script src="seams.js"></script><script src="db.js"></script><script src="png-stream.js"></script><script src="output.js"></script><script src="export.js"></script><script src="review.js"></script></body></html>

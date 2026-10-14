@@ -1,5 +1,5 @@
 const $=id=>document.getElementById(id);
-let tab,job,mode='scroll',internalScroll=false,redirectSeen=null;
+let tab,job,mode='scroll',internalScroll=false;
 function setMode(value){mode=value;$('classicPanel').hidden=value!=='classic';$('scrollPanel').hidden=$('scrollHelp').hidden=value==='classic';$('modeScroll').setAttribute('aria-pressed',String(value==='scroll'));$('modeClassic').setAttribute('aria-pressed',String(value==='classic'));void chrome.storage.local.set({captureMode:value}).catch(error);}
 async function send(m){const r=await chrome.runtime.sendMessage(m);if(!r?.ok)throw new Error(r?.error||'扩展未响应。');return r.value;}
 function error(e){$('status').textContent=e.message;}
@@ -8,7 +8,6 @@ async function refresh(){
   job=await send({type:'LAST',tabId:tab.id});
   const classic=await send({type:'CLASSIC_STATUS',tabId:tab.id}),classicRunning=classic?.status==='running';
   $('classicStatus').textContent=classic?.phase||'';
-  if(classic?.status==='redirected'&&classic.jobId===job?.id&&redirectSeen!==classic.jobId){redirectSeen=classic.jobId;setMode('scroll');}
   const active=await send({type:'ACTIVE'});$('activeJobs').replaceChildren();
   for(const j of active.filter(j=>j.tabId!==tab.id)) {
     const p=document.createElement('p');p.textContent=`其他页面：${j.title.slice(0,25)} · ${j.tileCount} 段 `;
@@ -18,7 +17,7 @@ async function refresh(){
   const running=job?.status==='running';
   $('pause').hidden=!running;$('stop').hidden=!running;
   $('resume').hidden=!job||running||job.url!==tab.url||job.status==='complete';
-  $('classicStart').disabled=running||classicRunning||!ArchiveCore.supported(tab.url);$('classicStart').textContent=classicRunning?'正在生成整页截图…':internalScroll?'使用滚动归档采集正文':'一键 F12 整页截图';
+  $('classicStart').disabled=running||classicRunning||!ArchiveCore.supported(tab.url);$('classicStart').textContent=classicRunning?'正在生成整页截图…':'一键 F12 整页截图';
   $('classicPreload').disabled=classicRunning||internalScroll;$('classicHide').disabled=classicRunning;
   $('start').disabled=running||classicRunning||!ArchiveCore.supported(tab.url);$('choose').disabled=$('reset').disabled=$('exclude').disabled=$('clearExclusions').disabled=running||classicRunning||!ArchiveCore.supported(tab.url);$('hideOverlays').disabled=running||classicRunning;$('background').disabled=running;$('seamless').disabled=running;
   $('forceVisible').disabled=running||classicRunning;
@@ -30,13 +29,14 @@ async function refresh(){
 }
 $('modeScroll').onclick=()=>setMode('scroll');$('modeClassic').onclick=()=>setMode('classic');
 $('forceVisible').onchange=()=>{$('background').disabled=$('forceVisible').checked;if($('forceVisible').checked)$('background').checked=false;};
-$('classicStart').onclick=async()=>{try{const result=await send({type:'CLASSIC_START',tabId:tab.id,options:{preload:$('classicPreload').checked,hideOverlays:$('classicHide').checked}});if(result?.mode==='scroll')await chrome.storage.local.set({captureMode:'scroll'});window.close();}catch(e){error(e);}};
+$('classicStart').onclick=async()=>{try{await send({type:'CLASSIC_START',tabId:tab.id,options:{preload:$('classicPreload').checked,hideOverlays:$('classicHide').checked}});window.close();}catch(e){error(e);}};
 async function setup(){
+  $('destination').textContent=await ArchiveOutput.description();
   [tab]=await chrome.tabs.query({active:true,currentWindow:true});
   if(!tab)throw new Error('没有活动标签页。');
   await refresh();setInterval(()=>refresh().catch(error),1000);
   const preferred=await chrome.storage.local.get('captureMode'),classic=await send({type:'CLASSIC_STATUS',tabId:tab.id});
-  setMode(classic?.status==='redirected'&&classic.jobId===job?.id?'scroll':classic?.status==='running'||preferred.captureMode==='classic'?'classic':'scroll');
+  setMode(classic?.status==='running'||preferred.captureMode==='classic'?'classic':'scroll');
   const info=await send({type:'INFO',tabId:tab.id});
   if(!info.supported){$('title').textContent='当前页面无法采集';$('selection').textContent='其他页面的采集任务继续运行，可在下方暂停。';return;}
   $('exclusions').textContent=`已点选排除 ${info.manualExclusions||0} 个元素；网页刷新后需重新点选。`;

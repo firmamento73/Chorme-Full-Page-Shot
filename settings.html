@@ -1,0 +1,10 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>保存位置 · 网页归档</title><link rel="stylesheet" href="ui.css"></head><body><main>
+<h1>保存位置</h1>
+<p>F12 截图、长图、PDF、离线收藏总览和采集记录使用同一保存位置。</p>
+<div class="panel"><p id="destination" role="status">正在读取设置…</p>
+<div class="row"><button id="chooseDirectory" class="primary">选择文件夹</button><button id="authorizeDirectory" hidden>重新授权</button><button id="resetDirectory">恢复默认</button></div>
+<p id="status" class="status" role="status"></p></div>
+<p>选择后直接保存到该文件夹，不再创建“网页归档”或“整页截图”子文件夹。同名文件自动编号，不覆盖已有文件。</p>
+<p class="muted">未选择文件夹时，统一保存到 Chrome 下载位置下的“网页归档”。已选文件夹不可访问时会提示失败；浏览器重启后可能需要重新授权。更改 Chrome 的下载位置会影响默认保存位置。</p>
+<a href="review.html">返回归档结果</a>
+</main><script src="core.js"></script><script src="output.js"></script><script src="settings.js"></script></body></html>

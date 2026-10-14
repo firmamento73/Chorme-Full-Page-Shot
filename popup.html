@@ -1,14 +1,14 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>滚动归档</title><link rel="stylesheet" href="ui.css"></head><body class="popup">
-<header class="brand"><img src="icons/icon-48.png" width="36" height="36" alt=""><div><h1>整页截图 · 滚动归档</h1><p class="muted">2.2.2 · 选择适合页面的截图方式</p></div></header>
+<header class="brand"><img src="icons/icon-48.png" width="36" height="36" alt=""><div><h1>整页截图 · 滚动归档</h1><p class="muted">2.2.3 · 选择适合页面的截图方式</p></div></header>
 <div class="mode-switch" role="group" aria-label="截图方式"><button id="modeScroll" aria-pressed="true">滚动归档</button><button id="modeClassic" aria-pressed="false">F12 整页截图</button></div>
 <section id="classicPanel" hidden>
-<p id="classicHint" class="warning" hidden>正文在内部滚动区域，F12 只能截到一屏。此按钮将使用滚动归档；完成后在结果页导出连续长图。</p>
+<p id="classicHint" class="warning" hidden>正文在内部滚动区域，F12 只能截到一屏。无法完整截取，请手动切换到滚动归档。</p>
 <p>与 F12 的「Capture full size screenshot」使用同一截图接口，一次生成整页 PNG。</p>
 <label><input id="classicPreload" type="checkbox" checked> 截图前预滚动，触发懒加载</label>
 <label><input id="classicHide" type="checkbox" checked> 隐藏悬浮控件（结束后恢复）</label>
 <button id="classicStart" class="primary block" disabled>一键 F12 整页截图</button>
 <p id="classicStatus" class="status" role="status"></p>
-<p class="muted">保存到下载目录的「整页截图」。预滚动最多 200 屏；虚拟列表回收的内容仍可能缺失，长收藏列表建议用滚动归档。超过安全尺寸会提示切换模式。</p>
+<p class="muted">使用下方设置的保存位置。预滚动最多 200 屏；虚拟列表回收的内容仍可能缺失，长收藏列表建议用滚动归档。超过安全尺寸会提示切换模式。</p>
 </section>
 <section id="scrollPanel">
 <p id="title"></p><p id="selection" class="muted"></p>
@@ -27,8 +27,9 @@
 <div class="row"><button id="pause" hidden>暂停</button><button id="stop" hidden>结束采集</button><button id="resume" hidden>继续上次任务</button></div>
 <div id="jobPanel" hidden><p id="progress"></p><button id="result" class="block">查看已保存结果 / 导出</button></div>
 </section>
+<p><a href="settings.html" target="_blank">保存位置</a> · <span id="destination" class="muted">默认：下载 / 网页归档</span></p>
 <div id="activeJobs"></div>
 <p id="status" class="status"></p>
 <p id="scrollHelp" class="muted">点击开始后面板自动关闭。后台截图可切换标签页；前台兼容截图需保持本页可见。手动滚动原页面会暂停。重新打开面板可查看进度。</p>
-<p class="muted">建议关闭目标页面的 F12 开发者工具。若 Chrome 拒绝调试连接，将自动改用前台兼容归档；也可手动勾选。快捷键 Alt+Shift+S。</p>
-<script src="core.js"></script><script src="popup.js"></script></body></html>
+<p class="muted">建议关闭目标页面的 F12 开发者工具。F12 失败会说明原因，不自动切换模式。需要时请手动切换到滚动归档，勾选前台兼容截图。快捷键 Alt+Shift+S。</p>
+<script src="core.js"></script><script src="output.js"></script><script src="popup.js"></script></body></html>
