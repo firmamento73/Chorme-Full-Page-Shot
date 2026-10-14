@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "整页截图 · 滚动归档",
-  "version": "2.2.1",
+  "version": "2.2.2",
   "minimum_chrome_version": "118",
   "description": "F12 原版整页截图与自动滚动归档，支持连续长图、PDF 和收藏总览。",
   "homepage_url": "https://github.com/firmamento73/Chorme-Full-Page-Shot",

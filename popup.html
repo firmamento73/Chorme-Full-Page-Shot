@@ -1,5 +1,5 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>滚动归档</title><link rel="stylesheet" href="ui.css"></head><body class="popup">
-<header class="brand"><img src="icons/icon-48.png" width="36" height="36" alt=""><div><h1>整页截图 · 滚动归档</h1><p class="muted">2.2.1 · 选择适合页面的截图方式</p></div></header>
+<header class="brand"><img src="icons/icon-48.png" width="36" height="36" alt=""><div><h1>整页截图 · 滚动归档</h1><p class="muted">2.2.2 · 选择适合页面的截图方式</p></div></header>
 <div class="mode-switch" role="group" aria-label="截图方式"><button id="modeScroll" aria-pressed="true">滚动归档</button><button id="modeClassic" aria-pressed="false">F12 整页截图</button></div>
 <section id="classicPanel" hidden>
 <p id="classicHint" class="warning" hidden>正文在内部滚动区域，F12 只能截到一屏。此按钮将使用滚动归档；完成后在结果页导出连续长图。</p>
@@ -15,6 +15,8 @@
 <div class="row"><button id="choose">选择滚动区域</button><button id="reset">自动识别</button></div>
 <label><input id="seamless" type="checkbox" checked> 无缝拼接（匹配重复区，失败时重试）</label>
 <label><input id="background" type="checkbox" checked> 切换标签页后继续采集</label>
+<label><input id="forceVisible" type="checkbox"> 前台兼容截图（无需调试连接）</label>
+<p id="compatHint" class="warning" hidden>当前任务使用前台兼容截图：保持原标签页可见，切页或最小化会暂停。完成后在结果页导出连续长图或 PDF。</p>
 <label><input id="hideOverlays" type="checkbox" checked> 采集时隐藏悬浮控件（结束后恢复）</label>
 <div class="row"><button id="exclude">点选排除元素</button><button id="clearExclusions">清空点选排除</button></div>
 <p id="exclusions" class="muted"></p>
@@ -27,6 +29,6 @@
 </section>
 <div id="activeJobs"></div>
 <p id="status" class="status"></p>
-<p id="scrollHelp" class="muted">点击开始后面板自动关闭，等待启动即可。默认可切换到其他标签页；手动滚动原页面会暂停。重新打开面板可查看进度。</p>
-<p class="muted">两种模式均需关闭目标页面的 F12 开发者工具。快捷键 Alt+Shift+S。</p>
+<p id="scrollHelp" class="muted">点击开始后面板自动关闭。后台截图可切换标签页；前台兼容截图需保持本页可见。手动滚动原页面会暂停。重新打开面板可查看进度。</p>
+<p class="muted">建议关闭目标页面的 F12 开发者工具。若 Chrome 拒绝调试连接，将自动改用前台兼容归档；也可手动勾选。快捷键 Alt+Shift+S。</p>
 <script src="core.js"></script><script src="popup.js"></script></body></html>
