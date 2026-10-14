@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 from PIL import Image,ImageChops
 import fitz
 ROOT=Path(__file__).resolve().parents[1]
-OUTPUT=ROOT/'dist'/('dashboard-artifacts' if os.environ.get('BROWSER_TEST_DASHBOARD') else 'classic-artifacts' if os.environ.get('BROWSER_TEST_CLASSIC') else 'seam-artifacts' if os.environ.get('BROWSER_TEST_SEAMS') else 'independent-artifacts' if os.environ.get('BROWSER_TEST_INDEPENDENT') else 'overlay-artifacts' if os.environ.get('BROWSER_TEST_OVERLAYS') else 'test-artifacts')
+OUTPUT=ROOT/'dist'/('compat-artifacts' if os.environ.get('BROWSER_TEST_COMPAT') else 'dashboard-artifacts' if os.environ.get('BROWSER_TEST_DASHBOARD') else 'classic-artifacts' if os.environ.get('BROWSER_TEST_CLASSIC') else 'seam-artifacts' if os.environ.get('BROWSER_TEST_SEAMS') else 'independent-artifacts' if os.environ.get('BROWSER_TEST_INDEPENDENT') else 'overlay-artifacts' if os.environ.get('BROWSER_TEST_OVERLAYS') else 'test-artifacts')
 class Quiet(http.server.SimpleHTTPRequestHandler):
  def log_message(self,*args):pass
 async def main():
@@ -36,6 +36,7 @@ async def main():
    if t=='tab':
     page=pages[a]
     active=flags['active'] if flags['active'] is not None else await page.evaluate('document.visibilityState === "visible"')
+    if 'visibleTab' in flags:active=a==flags['visibleTab']
     return {'id':a,'windowId':1,'url':page.url,'title':await page.title(),'active':active}
    if t=='script':
     page=pages[a['target']['tabId']]
@@ -45,18 +46,22 @@ async def main():
     result=await page.evaluate('({source,args})=>('+a['func']+')(...args)',{'source':a['func'],'args':a.get('args',[])})
     return [{'result':result}]
    if t=='insertCSS':
-    session=sessions[a['target']['tabId']]
+    owned=a['target']['tabId'] not in sessions
+    session=await context.new_cdp_session(pages[a['target']['tabId']]) if owned else sessions[a['target']['tabId']]
     await session.send('DOM.enable');await session.send('CSS.enable')
     tree=await session.send('Page.getFrameTree')
     sheet=await session.send('CSS.createStyleSheet',{'frameId':tree['frameTree']['frame']['id']})
-    injected_styles[a['css']]=(session,sheet['styleSheetId'])
+    injected_styles[a['css']]=(session,sheet['styleSheetId'],owned)
     await session.send('CSS.setStyleSheetText',{'styleSheetId':sheet['styleSheetId'],'text':a['css']})
     return None
    if t=='removeCSS':
     entry=injected_styles.pop(a['css'],None)
     if entry:await entry[0].send('CSS.setStyleSheetText',{'styleSheetId':entry[1],'text':''})
+    if entry and entry[2]:await entry[0].detach()
     return None
    if t=='attach':
+    flags['attachCalls']=flags.get('attachCalls',0)+1
+    if flags.get('rejectAttach'):raise RuntimeError(flags['rejectAttach'])
     ident=a['tabId'];sessions[ident]=await context.new_cdp_session(pages[ident])
     if flags['infobar']:
      original_viewports[ident]=pages[ident].viewport_size.copy()
@@ -74,6 +79,16 @@ async def main():
      png=Image.open(io.BytesIO(base64.b64decode(result['data']))).convert('RGB');png.paste((242,16,209),(0,0,png.width,min(620,png.height)))
      buffer=io.BytesIO();png.save(buffer,format='PNG');result['data']=base64.b64encode(buffer.getvalue()).decode()
     return result
+   if t=='visible':
+    assert a=={'windowId':1,'options':{'format':'png'}}
+    flags.setdefault('visibleCalls',[]).append(time.monotonic())
+    if flags.get('rejectVisible'):raise RuntimeError('activeTab permission denied')
+    ident=flags['visibleTab'];png=await pages[ident].screenshot()
+    if flags.pop('switchDuringCapture',False):
+     await control.evaluate('id=>{for(const fn of testTabEvents.activated){fn({windowId:1,tabId:999});fn({windowId:1,tabId:id});}}',ident)
+    if flags.pop('navigateDuringCapture',False):
+     await control.evaluate('id=>{for(const fn of testTabEvents.updated)fn(id,{status:"loading"});}',ident)
+    return 'data:image/png;base64,'+base64.b64encode(png).decode()
    if t=='send':return await control.evaluate('m=>testSend(m)',a)
    if t=='query':
     if flags.get('queryTab'):
@@ -121,6 +136,79 @@ async def main():
    assert all(not t['incomplete'] for t in data['tiles'])
    results.append({'case':name,'status':job['status'],'tiles':len(data['tiles']),'items':len(data['items']),'strips':job['strip']+1})
    print('PASS',results[-1],flush=True)
+  if os.environ.get('BROWSER_TEST_COMPAT'):
+   rejection='Cannot access a chrome-extension:// URL of different extension'
+   flags['rejectAttach']=rejection
+   async def pixel_page():
+    page=await context.new_page();ident=await register(page);await page.goto(origin+'/tests/pixel-fixture.html');await page.wait_for_function('document.querySelector("canvas")?.height===4600');flags['visibleTab']=ident;return page,ident
+   async def export_png(job):
+    review=await context.new_page();await review.goto(origin+'/review.html?job='+job['id']);await review.wait_for_function('typeof job!=="undefined" && job && tiles.length>0');await review.locator('#png').click();await review.wait_for_function('!busy && document.getElementById("status").textContent.includes("已交给")',timeout=90000);await review.close()
+    return Image.open(next(OUTPUT.glob('*_'+job['id'][:8]+'_连续长图.png'))).convert('RGB')
+   # The injected attach rejection is the exact error in the user's screenshots.
+   page,ident=await pixel_page();baseline=Image.open(io.BytesIO(await page.screenshot(full_page=True))).convert('RGB')
+   await start(ident,background=True,overview=False);job=await wait_job(ident)
+   assert job['status']=='complete' and job['captureBackend']=='visible' and job['options']['background'] is False,job
+   assert job['tileCount']>1 and job['strip']==0 and not sessions
+   actual=await export_png(job);assert actual.size==baseline.size,(actual.size,baseline.size)
+   diff=ImageChops.difference(actual,baseline);different=0 if diff.getbbox() is None else sum(1 for pixel in diff.getdata() if pixel!=(0,0,0))
+   assert different==0,(different,diff.getbbox())
+   results.append({'case':'exact Chrome attach rejection falls back; seamless PNG equals full-page reference','size':actual.size,'tiles':job['tileCount'],'differentPixels':different})
+   # F12's asynchronous attach failure must create a visible-capture archive and expose it in the popup.
+   page,ident=await pixel_page();await send({'type':'CLASSIC_START','tabId':ident,'options':{'preload':False}})
+   await control.wait_for_function('id=>classicResults.get(id)?.status!=="running"',arg=ident)
+   status=await send({'type':'CLASSIC_STATUS','tabId':ident});assert status['status']=='redirected',status
+   job=await wait_job(ident);assert job['id']==status['jobId'] and job['status']=='complete' and job['captureBackend']=='visible',job
+   flags['queryTab']=ident;popup=await context.new_page();await popup.goto(origin+'/popup.html');await popup.wait_for_function('document.querySelector("#forceVisible").checked && document.querySelector("#background").disabled && !document.querySelector("#scrollPanel").hidden && !document.querySelector("#compatHint").hidden')
+   assert await popup.locator('#scrollPanel').is_visible() and await popup.locator('#compatHint').is_visible() and await popup.locator('#background').is_disabled()
+   await popup.screenshot(path=str(OUTPUT/'popup-compat.png'));await popup.close();flags.pop('queryTab')
+   results.append({'case':'F12 rejection redirects to complete archive and popup displays foreground limitation','tiles':job['tileCount']})
+   mismatch=await control.evaluate('async r=>{try{await redirectClassic(r,{},true);return "unexpected success";}catch(e){return e.message;}}',{'tabId':ident,'url':page.url+'?previous-page'})
+   assert '原页面已跳转' in mismatch and (await send({'type':'LAST','tabId':ident}))['id']==job['id'],mismatch
+   results.append({'case':'F12 fallback refuses to start on a URL different from the original request'})
+   # Manual mode never tries to attach. A switch pauses; resuming keeps the capture scale/backend.
+   page,ident=await pixel_page();before=flags['attachCalls'];await start(ident,forceVisible=True,background=True,overview=False)
+   first=await wait_job(ident,tiles_at_least=1);flags['visibleTab']=999;paused=await wait_job(ident)
+   assert paused['status']=='paused' and paused['tileCount']>=1 and '切换' in paused['reason'],paused
+   flags['visibleTab']=ident;flags.pop('rejectAttach');await send({'type':'START','tabId':ident,'resume':paused['id'],'options':{'background':True,'forceVisible':False}});job=await wait_job(ident)
+   assert job['status']=='complete' and job['captureBackend']=='visible' and flags['attachCalls']==before,job
+   assert (await export_png(job)).size==baseline.size
+   results.append({'case':'manual compatibility bypasses debugger; tab switch pauses; resume preserves visible backend'})
+   page,ident=await pixel_page();await start(ident,forceVisible=True,overview=False);await wait_job(ident,tiles_at_least=1)
+   await control.evaluate('globalThis.testWindowState={state:"minimized"}');job=await wait_job(ident)
+   assert job['status']=='paused' and '最小化' in job['reason'],job
+   await control.evaluate('globalThis.testWindowState={}');results.append({'case':'minimized source window pauses visible capture'})
+   page=await context.new_page();ident=await register(page);await page.goto(origin+'/tests/dashboard-fixture.html?kind=hidden#/flow/internal/todo');flags['visibleTab']=ident
+   await start(ident,forceVisible=True,overview=False);job=await wait_job(ident)
+   assert job['status']=='complete' and job['strip']==0,job
+   actual=await export_png(job);assert actual.size==(1165,5250),actual.size
+   for row in range(80):assert actual.getpixel((15,row*65+32))==(80+row,140+row%70,210-row),(row,actual.getpixel((15,row*65+32)))
+   assert await page.locator('.floating').evaluate('e=>getComputedStyle(e).visibility')=='visible'
+   results.append({'case':'visible capture crops internal dashboard at device scale and retains all 80 rows','size':actual.size})
+   # Even a switch-away-and-back during a capture invalidates the resulting bitmap.
+   for race in ['switchDuringCapture','navigateDuringCapture']:
+    page,ident=await pixel_page();flags[race]=True;await start(ident,forceVisible=True,overview=False);job=await wait_job(ident)
+    assert job['status']=='paused' and job['tileCount']==0 and '活动页面发生变化' in job['reason'],job
+    assert not (await counts(job))['tiles']
+    results.append({'case':race+' discards image without committing any tile'})
+   page,ident=await pixel_page();flags['rejectVisible']=True;await start(ident,forceVisible=True,overview=False);job=await wait_job(ident)
+   assert job['status']=='paused' and job['tileCount']==0 and 'activeTab permission denied' in job['reason'],job
+   flags.pop('rejectVisible');results.append({'case':'capture permission failure is visible and never reports successful capture'})
+   # Unknown errors must retain their diagnostic information, not silently choose a backend.
+   flags['rejectAttach']='Unexpected policy refusal';before=len(flags['visibleCalls']);await start(ident,overview=False);job=await wait_job(ident)
+   assert job['status']=='paused' and 'Unexpected policy refusal' in job['reason'] and len(flags['visibleCalls'])==before,job
+   flags.pop('rejectAttach');results.append({'case':'unrecognized debugger error preserves cause and offers manual compatibility'})
+   # Existing CDP tiles may have a different pixel ratio; do not append visible-API tiles.
+   await start(ident,overview=False);first=await wait_job(ident,tiles_at_least=1);await send({'type':'PAUSE','jobId':first['id']});paused=await wait_job(ident)
+   flags['rejectAttach']=rejection;await send({'type':'START','tabId':ident,'resume':paused['id']});job=await wait_job(ident)
+   assert job['status']=='paused' and job['tileCount']==paused['tileCount'] and '截图方式已改变' in job['reason'],job
+   results.append({'case':'backend change refuses to mix existing CDP tiles with visible screenshots'})
+   # Two callers share Chrome's two-per-second capture quota, including separate jobs.
+   flags['visibleCalls']=[]
+   await control.evaluate('async j=>{j.options.background=false;await Promise.all([ArchiveCapture.visible(j,{}),ArchiveCapture.visible({...j,id:"other-job"},{})]);}',job)
+   calls=flags['visibleCalls'];assert len(calls)==2 and calls[1]-calls[0]>=.55,calls
+   results.append({'case':'concurrent visible captures are globally rate-limited','intervalSeconds':round(calls[1]-calls[0],3)})
+   assert not sessions and not injected_styles
+   (OUTPUT/'compat-results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2));print(json.dumps(results,ensure_ascii=False,indent=2),flush=True);await browser.close();server.shutdown();return
   if os.environ.get('BROWSER_TEST_DASHBOARD'):
    async def dashboard(kind):
     page=await context.new_page();ident=await register(page);await page.goto(origin+'/tests/dashboard-fixture.html?kind='+kind+'#/flow/internal/todo');await send({'type':'INFO','tabId':ident});return page,ident

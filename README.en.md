@@ -6,6 +6,12 @@
 
 Chrome Manifest V3 extension with two modes: **F12 full-page screenshot** for a one-shot PNG, and **scroll archive** for lazy or virtual lists, continuous long PNGs and image-based PDFs. Xiaohongshu-style note cards can also be saved as a searchable, self-contained HTML overview.
 
+## 2.2.2 capture compatibility
+
+Chrome can reject debugger attachment when a page embeds another extension, reporting `Cannot access a chrome-extension:// URL of different extension`. Both capture entries now fall back to `tabs.captureVisibleTab` for this error or an already-attached debugger. The existing `activeTab` grant is sufficient. Manual compatibility capture is also available. Unknown failures retain their original diagnostics.
+
+**Compatibility capture requires the source tab to remain visible. Switching tabs or minimizing pauses it.** The F12 entry creates a scroll archive on fallback; reopen the popup for progress and export a continuous PNG or PDF from the results after completion. Normal debugger capture still supports background jobs. Captures validate tab/window identity and activation/navigation events before committing; calls share a global rate limit. Existing CDP fragments cannot be resumed using a different capture backend; start a new archive instead.
+
 ## F12 full-page mode
 
 Select **F12 整页截图** at the top of the popup and click its capture button. It uses `Page.getLayoutMetrics` and `Page.captureScreenshot(captureBeyondViewport: true)`, the same capture path as DevTools' **Capture full size screenshot**. Keep the target tab's DevTools closed. PNGs go directly to the `整页截图` download folder; reopening the popup shows progress or errors. The new icon includes 16, 32, 48 and 128 pixel Chrome assets.
@@ -20,7 +26,7 @@ Download `fullpage-shot-VERSION.zip` from the Assets of the [latest release](htt
 
 Extract the release ZIP. Open `chrome://extensions`, enable Developer mode, choose **Load unpacked**, and select the folder containing `manifest.json`. Chrome 118+ is required. No build step is needed.
 
-Open the target page in your logged-in browser and close its DevTools. Click the extension icon or press `Alt+Shift+S`. The main scroll region is detected automatically: a scrolling document remains the target; a fixed dashboard uses its main internal container, including native overflow:hidden scrollers and open shadow roots. Navigation sidebars are excluded. Choose a container manually if two similarly sized regions compete. The auto-detect button clears the manual selection. Version **2.2.1** defaults to background capture: the job remains attached to the original tab while you browse elsewhere. Jobs on different tabs run independently; the popup can pause other jobs. Existing debugger permission is sufficient; no new host permissions are added. Disable the background option for foreground compatibility mode.
+Open the target page in your logged-in browser and close its DevTools. Click the extension icon or press `Alt+Shift+S`. The main scroll region is detected automatically: a scrolling document remains the target; a fixed dashboard uses its main internal container, including native overflow:hidden scrollers and open shadow roots. Navigation sidebars are excluded. Choose a container manually if two similarly sized regions compete. The auto-detect button clears the manual selection. Version **2.2.2** defaults to background capture: the job remains attached to the original tab while you browse elsewhere. Jobs on different tabs run independently; the popup can pause other jobs. Existing debugger permission is sufficient; no new host permissions are added. Disabling background capture alone still uses the debugger; select **前台兼容截图** to capture without a debugger connection.
 
 Replace the original extension files, reload the extension, then refresh the page. Continuous exports first repair old overlapping viewports by pixel registration. Occluded pixels and unrelated rescans may still require recapture. Manual scrolling of the source page, navigation, closure, resize, or debugger disconnection still pauses its job. Background drawing cannot guarantee every website loads correctly when hidden or that system resources remain available.
 
@@ -36,10 +42,13 @@ The first release supports vertical visible-tab capture of the main document or 
 
 The user-supplied 2.0.1 PDF confirms capture from a real Xiaohongshu session and revealed repeated floating UI. The current overlay and background capture behavior still needs verification in the user's browser; test a small batch first.
 
-The cloud browser administrator blocks unpacked-extension installation and direct `file://` navigation. Automated browser tests use a test-only extension-API bridge with real Chromium rendering and CDP screenshots. Exported standalone HTML is served locally for rendering checks. This does not validate actual extension installation, activeTab user-gesture grants, service-worker lifecycle, or local file opening. Test infrastructure is excluded from release packages.
+The cloud browser administrator blocks unpacked-extension installation and direct `file://` navigation. Automated browser tests use a test-only extension-API bridge with real Chromium rendering and CDP/viewport screenshots. Compatibility tests inject the exact reported attachment rejection; they do not reproduce the user’s Windows Chrome extension installation. Exported standalone HTML is served locally for rendering checks. This does not validate actual extension installation, activeTab user-gesture grants, service-worker lifecycle, or local file opening. Test infrastructure is excluded from release packages.
 
 ```bash
 node --test tests/core.test.js tests/seams.test.js
+BROWSER_TEST_COMPAT=1 python tests/browser_test.py
+BROWSER_TEST_CLASSIC=1 python tests/browser_test.py
+BROWSER_TEST_DASHBOARD=1 python tests/browser_test.py
 BROWSER_TEST_SEAMS=1 python tests/browser_test.py
 BROWSER_TEST_INDEPENDENT=1 python tests/browser_test.py
 BROWSER_TEST_OVERLAYS=1 python tests/browser_test.py

@@ -1,6 +1,6 @@
 importScripts('core.js','db.js','seams.js');
 const C=ArchiveCore,DB=ArchiveDB,tasks=new Map();
-importScripts('classic.js');
+importScripts('capture-backend.js','classic.js');
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function internal(sender) {return sender.id===chrome.runtime.id&&sender.url?.startsWith(chrome.runtime.getURL(''));}
 async function bounded(label,fn,limit=15000) {
@@ -109,7 +109,7 @@ function pixels(bitmap){const canvas=new OffscreenCanvas(bitmap.width,bitmap.hei
 async function capture(job,state,snapshot,known) {
   for(let attempt=0;attempt<3;attempt++) {
     await check(job,state);
-    const result=await bounded('浏览器截图',()=>chrome.debugger.sendCommand({tabId:job.tabId},'Page.captureScreenshot',{format:'png',fromSurface:true,captureBeyondViewport:false}),30000);
+    const result=job.captureBackend==='visible'?await ArchiveCapture.visible(job,state):await bounded('浏览器截图',()=>chrome.debugger.sendCommand({tabId:job.tabId},'Page.captureScreenshot',{format:'png',fromSurface:true,captureBeyondViewport:false}),30000);
     await check(job,state);
     const after=await page(job.tabId,'inspect');
     if(!C.sameView(snapshot,after)) {snapshot=await waitReady(job,state);continue;}
@@ -182,11 +182,17 @@ async function run(job,state,resume) {
     if(sameDocument&&job.exclusionKey&&info.exclusionKey!==job.exclusionKey)throw new Error('点选排除的元素已改变，请从顶部创建新任务。');
     if(resume&&!sameDocument&&job.manualExclusions)throw new Error('刷新后点选排除已失效，请重新点选并从顶部创建新任务。');
     job.sourceViewport=info.viewport;
-    await phase(job,'正在连接浏览器截图');
-    let attachAbandoned=false;
-    try {await bounded('连接截图',()=>chrome.debugger.attach({tabId:job.tabId},'1.3').then(()=>{attached=true;if(attachAbandoned)void chrome.debugger.detach({tabId:job.tabId}).catch(()=>{});}));}
-    catch(e){attachAbandoned=true;throw new Error('无法连接截图。请关闭原网页的 F12 开发者工具或其他调试扩展后重试。'+e.message);}
-    if(job.options.background!==false) {
+    let visible=job.captureBackend==='visible'||job.options.forceVisible===true;
+    if(!visible){
+      await phase(job,'正在连接浏览器截图');let attachAbandoned=false;
+      try {await bounded('连接截图',()=>chrome.debugger.attach({tabId:job.tabId},'1.3').then(()=>{attached=true;if(attachAbandoned)void chrome.debugger.detach({tabId:job.tabId}).catch(()=>{});}));}
+      catch(e){attachAbandoned=true;if(!ArchiveCapture.restricted(e))throw ArchiveCapture.connectionError(e);visible=true;warn(job,'Chrome 拒绝调试连接，已改用前台兼容截图。采集时请保持原标签页可见，完成后再打开结果页。');}
+    }
+    const backend=visible?'visible':'cdp';
+    if(job.tileCount&&(job.captureBackend||'cdp')!==backend)throw new Error('截图方式已改变，像素比例可能不同。请从顶部创建新任务，避免与旧截图混合。');
+    job.captureBackend=backend;
+    if(visible){job.options.forceVisible=true;job.options.background=false;await phase(job,'前台兼容截图：请保持原标签页可见，完成后再打开结果页');await waitForStart(job,state);}
+    if(!visible&&job.options.background!==false) {
       await phase(job,'正在启用原标签页后台绘制');
       try{await bounded('启用后台绘制',()=>chrome.debugger.sendCommand({tabId:job.tabId},'Emulation.setFocusEmulationEnabled',{enabled:true}));focusEmulated=true;}
       catch(e){throw new Error('无法启用后台采集，请更新 Chrome 或取消“切换标签页后继续采集”后重试。'+e.message);}
@@ -240,6 +246,7 @@ async function run(job,state,resume) {
 let queue=Promise.resolve();
 async function start(request) {
   const tab=await chrome.tabs.get(request.tabId);
+  if(request.expectedUrl&&tab.url!==request.expectedUrl)throw new Error('原页面已跳转，请在新页面重新截图。');
   if(!C.supported(tab.url))throw new Error('请在普通网页中使用；浏览器内部页面无法截图。');
   if(classicTasks.has(tab.id)||[...tasks.values()].some(state=>state.tabId===tab.id))throw new Error('此标签页已有截图或采集任务，请先等待截图完成或暂停采集。');
   let job;
@@ -249,14 +256,16 @@ async function start(request) {
     job.tabId=tab.id;
     if(request.options)job.options.seamless=request.options.seamless!==false;
     if(request.options)job.options.background=request.options.background!==false;
+    if(request.options)job.options.forceVisible=job.captureBackend==='visible'||request.options.forceVisible===true;
     if(request.options&&job.tileCount&&(request.options.hideOverlays!==false)!==(job.options.hideOverlays!==false))throw new Error('浮层设置改变后请从顶部创建新任务，避免混入旧截图。');
     if(request.options)job.options.hideOverlays=request.options.hideOverlays!==false;
     if(request.options){job.options.allowIncomplete=request.options.allowIncomplete===true;job.options.waitMs=Math.max(3000,Math.min(60000,Number(request.options.waitMs)||job.options.waitMs));}
   } else {
     const options=request.options||{};
     job={id:crypto.randomUUID(),url:C.identity(tab.url),title:tab.title||'网页',tabId:tab.id,created:new Date().toISOString(),tileCount:0,itemCount:0,bytes:0,strip:-1,last:null,warnings:[],
-      options:{seamless:options.seamless!==false,background:options.background!==false,hideOverlays:options.hideOverlays!==false,overview:options.overview!==false,allowIncomplete:options.allowIncomplete===true,waitMs:Math.max(3000,Math.min(60000,Number(options.waitMs)||15000)),settleMs:Math.max(500,Math.min(5000,Number(options.settleMs)||900)),bottomWaitMs:2500,maxSteps:1500}};
+      options:{forceVisible:options.forceVisible===true,seamless:options.seamless!==false,background:options.background!==false,hideOverlays:options.hideOverlays!==false,overview:options.overview!==false,allowIncomplete:options.allowIncomplete===true,waitMs:Math.max(3000,Math.min(60000,Number(options.waitMs)||15000)),settleMs:Math.max(500,Math.min(5000,Number(options.settleMs)||900)),bottomWaitMs:2500,maxSteps:1500}};
   }
+  if(job.options.forceVisible)job.options.background=false;
   job.status='running';job.reason='';job.phase='正在准备启动';job.updated=Date.now();
   const state={tabId:tab.id,stop:false,detached:false,finish:false};tasks.set(job.id,state);
   try{await DB.put('jobs',job);await chrome.storage.local.set({lastJob:job.id});}
