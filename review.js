@@ -29,10 +29,11 @@ async function more(){
 }
 async function exportWith(fn){
   if(busy)return;busy=true;$('pngMode').disabled=$('pdfMode').disabled=$('forceJoin').disabled=true;for(const id of ['png','pdf','html','remove'])$(id).disabled=true;
-  try{const count=await fn();status(`已交给 Chrome 下载：${count} 个文件。请在下载列表确认完成。`);}catch(e){status(e.message);}
+  try{const count=await fn();status(ArchiveOutput.completion(count));}catch(e){status(e.message);}
   finally{busy=false;$('pngMode').disabled=$('pdfMode').disabled=$('forceJoin').disabled=false;$('png').disabled=$('pdf').disabled=!tiles.length;$('html').disabled=!items.length;$('remove').disabled=job.status==='running';}
 }
 async function init(){
+  $('destination').textContent=await ArchiveOutput.description();
   const jobs=(await DB.jobs()).sort((a,b)=>b.updated-a.updated);
   if(!jobId&&jobs.length)jobId=jobs[0].id;
   for(const j of jobs){const o=document.createElement('option');o.value=j.id;o.textContent=`${new Date(j.created).toLocaleString()} · ${j.title.slice(0,45)}`;o.selected=j.id===jobId;$('history').append(o);}
@@ -48,9 +49,10 @@ async function init(){
   $('png').disabled=$('pdf').disabled=!tiles.length;$('html').disabled=!items.length;$('remove').disabled=job.status==='running';$('record').disabled=false;refreshView();
 }
 $('png').onclick=()=>exportWith(()=>E.png(job,tiles,status,{mode:$('pngMode').value,allowIndependent:$('forceJoin').checked}));$('pdf').onclick=()=>exportWith(()=>E.pdf(job,tiles,status,{mode:$('pdfMode').value,allowIndependent:$('forceJoin').checked}));$('html').onclick=()=>exportWith(()=>E.html(job,items,status));
-$('record').onclick=async()=>{try{const {last,tabId,...record}=job;await E.download(new Blob([JSON.stringify({...record,tiles,items},null,2)],{type:'application/json'}),`${C.filename(job.title)}_采集记录.json`);status('采集记录已交给 Chrome 下载。');}catch(e){status(e.message);}};
+$('record').onclick=async()=>{try{const {last,tabId,...record}=job;await E.download(new Blob([JSON.stringify({...record,tiles,items},null,2)],{type:'application/json'}),`${C.filename(job.title)}_采集记录.json`);status(ArchiveOutput.completion(1));}catch(e){status(e.message);}};
 $('remove').onclick=async()=>{if(busy||!confirm('删除此任务的本地缓存？已下载的文件仍保留。'))return;try{await send({type:'DELETE',jobId:job.id});location.href='review.html';}catch(e){status(e.message);}};
 $('history').onchange=()=>{location.href='review.html?job='+encodeURIComponent($('history').value);};
 for(const name of ['screens','notes'])$(name).onclick=()=>{mode=name;$('screens').setAttribute('aria-pressed',name==='screens');$('notes').setAttribute('aria-pressed',name==='notes');$('search').hidden=name==='screens';refreshView();};
 $('search').oninput=refreshView;$('more').onclick=()=>more().catch(e=>status(e.message));
+window.addEventListener('focus',()=>ArchiveOutput.description().then(value=>{$('destination').textContent=value;}).catch(e=>status(e.message)));
 init().catch(e=>status(e.message));

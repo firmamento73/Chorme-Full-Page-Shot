@@ -17,21 +17,17 @@ async function startClassic(request){
   await inject(tab.id);
   const layout=await page(tab.id,'scrollTargets');
   if(layout.internal&&!layout.documentScrollable){
-    return redirectClassic({tabId:tab.id,title:tab.title||'网页',url:tab.url},request.options||{},false);
+    const reason='正文位于内部滚动区域，F12 无法完整截取。请手动切换到滚动归档。';
+    await classicPhase({tabId:tab.id,url:tab.url,title:tab.title||'网页'},reason,'error');
+    throw new Error(reason);
   }
   const state={tabId:tab.id,detached:false};classicTasks.set(tab.id,state);
   const result={tabId:tab.id,url:tab.url,status:'running',phase:'正在准备 F12 整页截图',title:tab.title||'网页'};
   try{await classicPhase(result,result.phase);}catch(e){classicTasks.delete(tab.id);throw e;}
   void runClassic(result,state,request.options||{}).catch(console.error);return result;
 }
-async function redirectClassic(result,options,visible){
-  const job=await start({tabId:result.tabId,expectedUrl:result.url,options:{forceVisible:visible,background:!visible,seamless:true,hideOverlays:options.hideOverlays!==false,overview:false}});
-  result.jobId=job.id;
-  await classicPhase(result,visible?'Chrome 拒绝调试连接，已转为前台兼容归档。请保持原标签页可见；完成后在结果页导出长图。':'正文位于内部滚动区域，已转为滚动归档；完成后请在结果页导出连续长图。','redirected');
-  return {mode:'scroll',jobId:job.id};
-}
 async function runClassic(result,state,options){
-  const target={tabId:result.tabId};let attached=false,prepared=false,css=null,original=null,redirect=false;
+  const target={tabId:result.tabId};let attached=false,prepared=false,css=null,original=null;
   async function command(method,params){
     const tab=await chrome.tabs.get(result.tabId);
     if(tab.url!==result.url)throw new Error('原页面已跳转，请在新页面重新截图。');
@@ -42,7 +38,7 @@ async function runClassic(result,state,options){
     await badge(result,'…');
     let abandoned=false;
     try{await bounded('连接 F12 截图',()=>chrome.debugger.attach(target,'1.3').then(()=>{attached=true;if(abandoned)void chrome.debugger.detach(target).catch(()=>{});}));}
-    catch(e){abandoned=true;if(ArchiveCapture.restricted(e)){redirect=true;return;}throw ArchiveCapture.connectionError(e);}
+    catch(e){abandoned=true;throw new Error('F12 截图无法连接：'+(e.message||String(e))+'。可关闭开发者工具后重试，或手动切换到滚动归档，勾选前台兼容截图。');}
     await command('Emulation.setFocusEmulationEnabled',{enabled:true});
     const saved=await command('Runtime.evaluate',{expression:'({x:scrollX,y:scrollY})',returnByValue:true});original=saved.result.value;
     await inject(result.tabId);prepared=true;
@@ -70,12 +66,12 @@ async function runClassic(result,state,options){
     // Explicitly refuse an oversized capture rather than silently truncating it.
     if(width>16384||height>16384||width*height>64000000)throw new Error(`页面尺寸 ${width} × ${height} 超过 F12 模式安全范围，请使用滚动归档导出连续长图。`);
     const shot=await command('Page.captureScreenshot',{format:'png',fromSurface:true,captureBeyondViewport:true,clip:{x:0,y:0,width,height,scale:1}});
-    C.pngBlob(shot.data);
+    const blob=C.pngBlob(shot.data);
     const host=C.filename(new URL(result.url).hostname||'page'),stamp=new Date().toISOString().replace(/[-:]/g,'').replace(/\.\d+Z$/,'').replace('T','-');
-    result.filename=`整页截图/${host}-${stamp}-F12.png`;result.width=width;result.height=height;
+    result.width=width;result.height=height;
     await classicPhase(result,'正在保存整页 PNG');
-    result.downloadId=await chrome.downloads.download({url:'data:image/png;base64,'+shot.data,filename:result.filename,saveAs:false});
-    await classicPhase(result,`已提交下载：${result.filename}${result.preloadLimited?'；预滚动已达 200 屏上限':''}`,'complete');
+    Object.assign(result,await ArchiveOutput.save(blob,`${host}-${stamp}-F12.png`,{dataUrl:'data:image/png;base64,'+shot.data}));
+    await classicPhase(result,`${result.destination==='directory'?'已保存':'已提交下载'}：${result.filename}${result.preloadLimited?'；预滚动已达 200 屏上限':''}`,'complete');
     await badge(result,'✓');
   }catch(e){await classicPhase(result,e.message,'error');await badge(result,'!');}
   finally{
@@ -87,9 +83,6 @@ async function runClassic(result,state,options){
       try{await chrome.debugger.sendCommand(target,'Emulation.setFocusEmulationEnabled',{enabled:false});}catch{}
       try{await chrome.debugger.detach(target);}catch{}
     }
-    if(redirect){
-      const pending=queue.then(()=>{classicTasks.delete(result.tabId);return redirectClassic(result,options,true);});queue=pending.catch(()=>{});
-      try{await pending;}catch(e){await classicPhase(result,e.message,'error');await badge(result,'!');}
-    }else classicTasks.delete(result.tabId);
+    classicTasks.delete(result.tabId);
   }
 }

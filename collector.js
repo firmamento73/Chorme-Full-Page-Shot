@@ -1,7 +1,7 @@
 // Isolated content-script world. Site globals/cookies are not read.
 (function() {
   'use strict';
-  const version='2.2.2';
+  const version='2.2.3';
   if(globalThis.FullPageCollector?.version===version)return;
   globalThis.FullPageCollector?.cleanup();
   const token=crypto.randomUUID();

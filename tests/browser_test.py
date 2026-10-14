@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 from PIL import Image,ImageChops
 import fitz
 ROOT=Path(__file__).resolve().parents[1]
-OUTPUT=ROOT/'dist'/('compat-artifacts' if os.environ.get('BROWSER_TEST_COMPAT') else 'dashboard-artifacts' if os.environ.get('BROWSER_TEST_DASHBOARD') else 'classic-artifacts' if os.environ.get('BROWSER_TEST_CLASSIC') else 'seam-artifacts' if os.environ.get('BROWSER_TEST_SEAMS') else 'independent-artifacts' if os.environ.get('BROWSER_TEST_INDEPENDENT') else 'overlay-artifacts' if os.environ.get('BROWSER_TEST_OVERLAYS') else 'test-artifacts')
+OUTPUT=ROOT/'dist'/('output-artifacts' if os.environ.get('BROWSER_TEST_OUTPUT') else 'compat-artifacts' if os.environ.get('BROWSER_TEST_COMPAT') else 'dashboard-artifacts' if os.environ.get('BROWSER_TEST_DASHBOARD') else 'classic-artifacts' if os.environ.get('BROWSER_TEST_CLASSIC') else 'seam-artifacts' if os.environ.get('BROWSER_TEST_SEAMS') else 'independent-artifacts' if os.environ.get('BROWSER_TEST_INDEPENDENT') else 'overlay-artifacts' if os.environ.get('BROWSER_TEST_OVERLAYS') else 'test-artifacts')
 class Quiet(http.server.SimpleHTTPRequestHandler):
  def log_message(self,*args):pass
 async def main():
@@ -97,12 +97,13 @@ async def main():
    if t=='create':
     page=await context.new_page();ident=await register(page);await page.goto(a['url']);return {'id':ident}
    if t=='download':
+    flags.setdefault('downloadRequests',[]).append({k:v for k,v in a.items() if k!='url'})
     download_id+=1
     encoded=await source['page'].evaluate('async u=>{const b=await (await fetch(u)).arrayBuffer();let s="";for(const n of new Uint8Array(b))s+=String.fromCharCode(n);return btoa(s);}',a['url'])
     dest=OUTPUT/Path(a['filename']).name;dest.write_bytes(base64.b64decode(encoded));return download_id
    raise RuntimeError(t)
   await context.expose_binding('testChromeBridge',bridge)
-  await context.add_init_script("if(['/review.html','/popup.html'].includes(location.pathname)){"+(ROOT/'tests'/'chrome-shim.js').read_text()+"}")
+  await context.add_init_script("if(['/review.html','/popup.html','/settings.html'].includes(location.pathname)){"+(ROOT/'tests'/'chrome-shim.js').read_text()+"}")
   control=await context.new_page();await control.goto(origin+'/tests/runner.html')
   async def send(m):
    result=await control.evaluate('m=>testSend(m)',m)
@@ -136,6 +137,68 @@ async def main():
    assert all(not t['incomplete'] for t in data['tiles'])
    results.append({'case':name,'status':job['status'],'tiles':len(data['tiles']),'items':len(data['items']),'strips':job['strip']+1})
    print('PASS',results[-1],flush=True)
+  if os.environ.get('BROWSER_TEST_OUTPUT'):
+   async def classic(ident):
+    await send({'type':'CLASSIC_START','tabId':ident,'options':{'preload':False}})
+    await control.wait_for_function('id=>classicResults.get(id)?.status!=="running"',arg=ident,timeout=60000)
+    await control.wait_for_function('id=>!classicTasks.has(id)',arg=ident)
+    return await send({'type':'CLASSIC_STATUS','tabId':ident})
+   page,ident=await fixture('lazy',36)
+   # The worker has no object-URL API; F12 supplies its existing PNG data URL.
+   first=await classic(ident);assert first['status']=='complete' and first['filename'].startswith('网页归档/'),first
+   assert flags['downloadRequests'][-1]['filename']==first['filename']
+   settings=await context.new_page();await settings.goto(origin+'/settings.html');await settings.wait_for_function('document.querySelector("#destination").textContent.includes("默认")')
+   await settings.evaluate('async()=>{const root=await navigator.storage.getDirectory();globalThis.testDirectory=await root.getDirectoryHandle("自选测试目录",{create:true});window.showDirectoryPicker=async options=>{if(options.mode!=="readwrite")throw Error("wrong mode");return testDirectory;};}')
+   await settings.click('#chooseDirectory');await settings.wait_for_function('document.querySelector("#status").textContent.includes("已保存设置")')
+   assert '自选测试目录' in await control.evaluate('ArchiveOutput.description()')
+   await settings.reload();await settings.wait_for_function('document.querySelector("#destination").textContent.includes("自选测试目录")')
+   results.append({'case':'folder choice persists across page reload and is shared with the capture worker context'})
+   before=len(flags['downloadRequests']);shot=await classic(ident)
+   assert shot['status']=='complete' and shot['destination']=='directory' and shot['filename'].startswith('自选测试目录/') and len(flags['downloadRequests'])==before,shot
+   details=await control.evaluate('async name=>{const d=await ArchiveOutput.getDirectory(),f=await (await d.getFileHandle(name)).getFile(),b=await createImageBitmap(f);const out={bytes:f.size,width:b.width,height:b.height};b.close();return out;}',Path(shot['filename']).name)
+   assert details['bytes']>1000 and details['height']>900,details
+   results.append({'case':'F12 writes a complete PNG directly to the selected folder, without Chrome download subfolders',**details})
+   worker=await control.evaluate('()=>new Promise((resolve,reject)=>{const w=new Worker("/tests/output-worker.js"),timer=setTimeout(()=>{w.terminate();reject(Error("worker timeout"));},10000);w.onmessage=e=>{clearTimeout(timer);w.terminate();resolve(e.data);};w.onerror=e=>{clearTimeout(timer);w.terminate();reject(Error(e.message));};w.postMessage(null);})')
+   assert worker['ok'] and worker['result']['filename']=='自选测试目录/worker.txt',worker
+   results.append({'case':'a real Web Worker reads the persisted directory handle and writes without Window APIs'})
+   await start(ident,background=True);job=await wait_job(ident);assert job['status']=='complete',job
+   review=await context.new_page();await review.goto(origin+'/review.html?job='+job['id']);await review.wait_for_function('typeof job!=="undefined" && job && tiles.length>0')
+   for button in ['png','pdf','html','record']:
+    await review.locator('#status').evaluate('e=>e.textContent=""');await review.click('#'+button);await review.wait_for_function('!busy && document.querySelector("#status").textContent.includes("已保存到所选文件夹")',timeout=60000)
+   files=await control.evaluate('async()=>{const out=[];for await(const [name,h]of await ArchiveOutput.getDirectory()){const f=await h.getFile();out.push({name,kind:h.kind,bytes:f.size,prefix:await f.slice(0,20).text()});}return out;}')
+   assert len(files)==6 and all(f['kind']=='file' and f['bytes']>0 for f in files),files
+   assert any(f['name'].endswith('.pdf') and f['prefix'].startswith('%PDF') for f in files)
+   assert any(f['name'].endswith('.html') and f['prefix'].lower().startswith('<!doctype html') for f in files)
+   assert any(f['name'].endswith('.json') and f['prefix'].startswith('{') for f in files)
+   assert len(flags['downloadRequests'])==before
+   results.append({'case':'PNG, PDF, offline HTML and JSON exports all use the selected folder without nested directories'})
+   # Cross-context saves cannot overwrite each other or an existing user file.
+   a,b=await asyncio.gather(control.evaluate('ArchiveOutput.save(new Blob(["first"]),"same.txt")'),settings.evaluate('ArchiveOutput.save(new Blob(["second"]),"same.txt")'))
+   assert a['filename']!=b['filename'] and {a['filename'],b['filename']}=={'自选测试目录/same.txt','自选测试目录/same (1).txt'},(a,b)
+   texts=await control.evaluate('async()=>{const d=await ArchiveOutput.getDirectory();return Promise.all(["same.txt","same (1).txt"].map(async n=>(await (await d.getFileHandle(n)).getFile()).text()));}')
+   assert set(texts)=={'first','second'},texts
+   results.append({'case':'concurrent saves from separate contexts number duplicate names without overwriting'})
+   # Denial/write failure must not silently change destination.
+   denied=await control.evaluate('async()=>{const p=FileSystemHandle.prototype,original=p.queryPermission;p.queryPermission=async()=>"denied";try{await ArchiveOutput.save(new Blob(["x"]),"denied.txt");return "unexpected success";}catch(e){return e.message;}finally{p.queryPermission=original;}}')
+   assert '重新授权' in denied and len(flags['downloadRequests'])==before,denied
+   failed=await control.evaluate('async()=>{const p=FileSystemFileHandle.prototype,original=p.createWritable;p.createWritable=async()=>{throw new DOMException("disk full","QuotaExceededError");};try{await ArchiveOutput.save(new Blob(["x"]),"failed.txt");return "unexpected success";}catch(e){return e.message;}finally{p.createWritable=original;}}')
+   assert 'disk full' in failed and len(flags['downloadRequests'])==before,failed
+   results.append({'case':'permission denial and write failure surface errors without falling back to Downloads'})
+   await settings.evaluate('()=>{window.showDirectoryPicker=async()=>{throw new DOMException("cancelled","AbortError");};}')
+   await settings.click('#chooseDirectory');await settings.wait_for_function('document.querySelector("#status").textContent.includes("已取消")')
+   assert '自选测试目录' in await settings.locator('#destination').inner_text()
+   # Simulate a browser permission prompt; real handle persistence/writes above use OPFS.
+   await settings.evaluate('globalThis.permission="prompt";FileSystemHandle.prototype.queryPermission=async()=>permission;FileSystemHandle.prototype.requestPermission=async()=>{permission="granted";return permission;};refresh();')
+   await settings.wait_for_function('!document.querySelector("#authorizeDirectory").hidden');await settings.click('#authorizeDirectory');await settings.wait_for_function('document.querySelector("#status").textContent.includes("已恢复授权")')
+   results.append({'case':'canceling folder selection preserves destination; permission can be renewed from settings'})
+   await settings.click('#resetDirectory');await settings.wait_for_function('document.querySelector("#status").textContent.includes("已恢复默认")')
+   assert await control.evaluate('ArchiveOutput.getDirectory()') is None
+   await review.locator('#status').evaluate('e=>e.textContent=""');await review.click('#record');await review.wait_for_function('document.querySelector("#status").textContent.includes("已交给 Chrome")')
+   assert flags['downloadRequests'][-1]['filename'].startswith('网页归档/')
+   assert all(r['filename'].startswith('网页归档/') for r in flags['downloadRequests']),flags['downloadRequests']
+   results.append({'case':'reset restores the common Downloads/网页归档 path for both F12 and exports'})
+   await settings.screenshot(path=str(OUTPUT/'settings-default.png'))
+   (OUTPUT/'output-results.json').write_text(json.dumps(results,ensure_ascii=False,indent=2));print(json.dumps(results,ensure_ascii=False,indent=2),flush=True);await browser.close();server.shutdown();return
   if os.environ.get('BROWSER_TEST_COMPAT'):
    rejection='Cannot access a chrome-extension:// URL of different extension'
    flags['rejectAttach']=rejection
@@ -153,18 +216,16 @@ async def main():
    diff=ImageChops.difference(actual,baseline);different=0 if diff.getbbox() is None else sum(1 for pixel in diff.getdata() if pixel!=(0,0,0))
    assert different==0,(different,diff.getbbox())
    results.append({'case':'exact Chrome attach rejection falls back; seamless PNG equals full-page reference','size':actual.size,'tiles':job['tileCount'],'differentPixels':different})
-   # F12's asynchronous attach failure must create a visible-capture archive and expose it in the popup.
-   page,ident=await pixel_page();await send({'type':'CLASSIC_START','tabId':ident,'options':{'preload':False}})
+   # F12 must report its error, without creating an archive or changing modes.
+   page,ident=await pixel_page();before=len(flags['visibleCalls']);await send({'type':'CLASSIC_START','tabId':ident,'options':{'preload':False}})
    await control.wait_for_function('id=>classicResults.get(id)?.status!=="running"',arg=ident)
-   status=await send({'type':'CLASSIC_STATUS','tabId':ident});assert status['status']=='redirected',status
-   job=await wait_job(ident);assert job['id']==status['jobId'] and job['status']=='complete' and job['captureBackend']=='visible',job
-   flags['queryTab']=ident;popup=await context.new_page();await popup.goto(origin+'/popup.html');await popup.wait_for_function('document.querySelector("#forceVisible").checked && document.querySelector("#background").disabled && !document.querySelector("#scrollPanel").hidden && !document.querySelector("#compatHint").hidden')
-   assert await popup.locator('#scrollPanel').is_visible() and await popup.locator('#compatHint').is_visible() and await popup.locator('#background').is_disabled()
-   await popup.screenshot(path=str(OUTPUT/'popup-compat.png'));await popup.close();flags.pop('queryTab')
-   results.append({'case':'F12 rejection redirects to complete archive and popup displays foreground limitation','tiles':job['tileCount']})
-   mismatch=await control.evaluate('async r=>{try{await redirectClassic(r,{},true);return "unexpected success";}catch(e){return e.message;}}',{'tabId':ident,'url':page.url+'?previous-page'})
-   assert '原页面已跳转' in mismatch and (await send({'type':'LAST','tabId':ident}))['id']==job['id'],mismatch
-   results.append({'case':'F12 fallback refuses to start on a URL different from the original request'})
+   status=await send({'type':'CLASSIC_STATUS','tabId':ident});assert status['status']=='error' and rejection in status['phase'],status
+   assert not await send({'type':'LAST','tabId':ident}) and len(flags['visibleCalls'])==before
+   flags['queryTab']=ident;popup=await context.new_page();await popup.goto(origin+'/popup.html');await popup.wait_for_function('!document.querySelector("#classicStart").disabled');await popup.click('#modeClassic');await popup.wait_for_timeout(1200)
+   assert await popup.locator('#classicPanel').is_visible() and not await popup.locator('#scrollPanel').is_visible()
+   assert rejection in await popup.locator('#classicStatus').inner_text()
+   await popup.screenshot(path=str(OUTPUT/'popup-f12-error.png'));await popup.close();flags.pop('queryTab')
+   results.append({'case':'F12 rejection stays in F12 mode and creates no scroll archive'})
    # Manual mode never tries to attach. A switch pauses; resuming keeps the capture scale/backend.
    page,ident=await pixel_page();before=flags['attachCalls'];await start(ident,forceVisible=True,background=True,overview=False)
    first=await wait_job(ident,tiles_at_least=1);flags['visibleTab']=999;paused=await wait_job(ident)
@@ -228,8 +289,11 @@ async def main():
     results.append({'case':label,'tiles':job['tileCount'],'strips':1,'size':image.size,'rowsVerified':80});print('PASS',results[-1],flush=True);await review.close()
    for kind in ['hidden','auto','shadow']:
     page,ident=await dashboard(kind);job=await start(ident,overview=False,background=True);job=await wait_job(ident);await verify_dashboard(page,ident,job,'automatic '+kind+' scrolling and no lost/duplicate rows')
-   page,ident=await dashboard('hidden');redirect=await send({'type':'CLASSIC_START','tabId':ident,'options':{'preload':True,'hideOverlays':True}});assert redirect['mode']=='scroll',redirect
-   job=await wait_job(ident);await verify_dashboard(page,ident,job,'F12 automatically routes internal document to scrolling archive')
+   page,ident=await dashboard('hidden');result=await control.evaluate('m=>testSend(m)',{'type':'CLASSIC_START','tabId':ident})
+   assert not result['ok'] and '内部滚动区域' in result['error'],result
+   assert not await send({'type':'LAST','tabId':ident})
+   assert (await send({'type':'CLASSIC_STATUS','tabId':ident}))['status']=='error'
+   results.append({'case':'F12 reports unsupported internal scrolling without starting an archive'})
    page,ident=await dashboard('two');job=await start(ident,overview=False);job=await wait_job(ident)
    assert job['status']=='paused' and job['tileCount']==0 and '多个' in job['reason'],job['reason']
    await send({'type':'CHOOSE','tabId':ident});await page.locator('.scroll-body').last.locator('.row').first.click()
