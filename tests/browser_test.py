@@ -162,6 +162,9 @@ async def main():
    assert await popup.locator('#scrollPanel').is_visible() and await popup.locator('#compatHint').is_visible() and await popup.locator('#background').is_disabled()
    await popup.screenshot(path=str(OUTPUT/'popup-compat.png'));await popup.close();flags.pop('queryTab')
    results.append({'case':'F12 rejection redirects to complete archive and popup displays foreground limitation','tiles':job['tileCount']})
+   mismatch=await control.evaluate('async r=>{try{await redirectClassic(r,{},true);return "unexpected success";}catch(e){return e.message;}}',{'tabId':ident,'url':page.url+'?previous-page'})
+   assert '原页面已跳转' in mismatch and (await send({'type':'LAST','tabId':ident}))['id']==job['id'],mismatch
+   results.append({'case':'F12 fallback refuses to start on a URL different from the original request'})
    # Manual mode never tries to attach. A switch pauses; resuming keeps the capture scale/backend.
    page,ident=await pixel_page();before=flags['attachCalls'];await start(ident,forceVisible=True,background=True,overview=False)
    first=await wait_job(ident,tiles_at_least=1);flags['visibleTab']=999;paused=await wait_job(ident)

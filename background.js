@@ -246,6 +246,7 @@ async function run(job,state,resume) {
 let queue=Promise.resolve();
 async function start(request) {
   const tab=await chrome.tabs.get(request.tabId);
+  if(request.expectedUrl&&tab.url!==request.expectedUrl)throw new Error('原页面已跳转，请在新页面重新截图。');
   if(!C.supported(tab.url))throw new Error('请在普通网页中使用；浏览器内部页面无法截图。');
   if(classicTasks.has(tab.id)||[...tasks.values()].some(state=>state.tabId===tab.id))throw new Error('此标签页已有截图或采集任务，请先等待截图完成或暂停采集。');
   let job;

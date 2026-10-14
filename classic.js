@@ -25,7 +25,7 @@ async function startClassic(request){
   void runClassic(result,state,request.options||{}).catch(console.error);return result;
 }
 async function redirectClassic(result,options,visible){
-  const job=await start({tabId:result.tabId,options:{forceVisible:visible,background:!visible,seamless:true,hideOverlays:options.hideOverlays!==false,overview:false}});
+  const job=await start({tabId:result.tabId,expectedUrl:result.url,options:{forceVisible:visible,background:!visible,seamless:true,hideOverlays:options.hideOverlays!==false,overview:false}});
   result.jobId=job.id;
   await classicPhase(result,visible?'Chrome 拒绝调试连接，已转为前台兼容归档。请保持原标签页可见；完成后在结果页导出长图。':'正文位于内部滚动区域，已转为滚动归档；完成后请在结果页导出连续长图。','redirected');
   return {mode:'scroll',jobId:job.id};
