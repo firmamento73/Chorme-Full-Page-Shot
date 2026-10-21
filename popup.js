@@ -40,7 +40,7 @@ async function setup(){
   const info=await send({type:'INFO',tabId:tab.id});
   if(!info.supported){$('title').textContent='当前页面无法采集';$('selection').textContent='其他页面的采集任务继续运行，可在下方暂停。';return;}
   $('exclusions').textContent=`已点选排除 ${info.manualExclusions||0} 个元素；网页刷新后需重新点选。`;
-  internalScroll=info.scrollTargets?.internal&&!info.scrollTargets?.documentScrollable;
+  internalScroll=(info.scrollTargets?.internal||info.scrollTargets?.embedded)&&!info.scrollTargets?.documentScrollable;
   $('classicHint').hidden=!internalScroll;
   $('title').textContent=info.title;$('selection').textContent=info.selected?(info.selectionMode==='auto'?'已自动识别正文滚动区域':'已手动选择页面内的滚动区域'):'采集区域：自动识别正文／整个网页';
   await refresh();

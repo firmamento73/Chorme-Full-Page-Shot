@@ -51,10 +51,10 @@
     const distinct=choices.filter(a=>!choices.some(b=>a!==b&&contains(a.element,b.element)&&b.score>=a.score*.85));
     if(distinct.length>1&&distinct[1].score>distinct[0].score*.75)throw new Error('发现多个相近大小的滚动区域，请点击“选择滚动区域”，再点正文列表。');
     if(distinct.length)return {element:distinct[0].element,automatic:true};
-    const embedded=elements().some(e=>{if(e.tagName!=='IFRAME')return false;const a=visibleArea(e);return a.width*a.height>innerWidth*innerHeight*.25;});
-    if(embedded&&doc.scrollHeight<=innerHeight+5)throw new Error('正文可能位于嵌入页面（iframe），当前无法滚动其内部；请在新标签页打开正文后再采集。');
+    if(embedded()&&doc.scrollHeight<=innerHeight+5)throw new Error('正文位于内嵌页面，需要连接浏览器调试截图后识别其滚动区域；前台兼容截图暂不支持此类正文。');
     return {element:doc,automatic:false};
   }
   function closest(e){for(let p=e;p;p=parent(p))if(eligible(p,true))return p;return documentRoot();}
-  globalThis.ArchiveScrollTargets={documentRoot,documentScrollable,parent,box,visibleArea,eligible,candidates,resolve,closest};
+  function embedded(){return elements().some(e=>{if(e.tagName!=='IFRAME')return false;const a=visibleArea(e);return e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})&&a.width*a.height>innerWidth*innerHeight*.25;});}
+  globalThis.ArchiveScrollTargets={documentRoot,documentScrollable,parent,box,visibleArea,eligible,candidates,resolve,closest,elements,embedded};
 })();

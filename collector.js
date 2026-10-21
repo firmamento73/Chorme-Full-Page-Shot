@@ -1,7 +1,7 @@
 // Isolated content-script world. Site globals/cookies are not read.
 (function() {
   'use strict';
-  const version='2.2.3';
+  const version='2.2.4';
   if(globalThis.FullPageCollector?.version===version)return;
   globalThis.FullPageCollector?.cleanup();
   const token=crypto.randomUUID();
@@ -106,7 +106,7 @@
     cleanup();picker?.remove();picker=document.createElement('div');
     picker.style.cssText='position:fixed;inset:0;z-index:2147483647;pointer-events:none';
     const shadow=picker.attachShadow({mode:'closed'});
-    shadow.innerHTML='<style>aside{position:fixed;top:12px;left:12px;background:#123c36;color:white;padding:12px 18px;border-radius:10px;font:14px system-ui}div{position:fixed;border:3px solid #16a085;background:#16a08522;box-sizing:border-box}</style><aside>点击要保存的滚动区域；Esc 取消。只支持当前页面，iframe 内部暂不支持。</aside><div></div>';
+    shadow.innerHTML='<style>aside{position:fixed;top:12px;left:12px;background:#123c36;color:white;padding:12px 18px;border-radius:10px;font:14px system-ui}div{position:fixed;border:3px solid #16a085;background:#16a08522;box-sizing:border-box}</style><aside>点击要保存的滚动区域；Esc 取消。内嵌正文请取消点选，恢复“自动识别”后自动识别。</aside><div></div>';
     if(kind==='exclude')shadow.querySelector('aside').textContent='点击要排除的浮层（优先选择最近的固定控件）；Esc 取消。仅采集时隐藏。';
     document.documentElement.append(picker);
     function candidate(el) {
@@ -127,11 +127,19 @@
     interruption='检测到手动滚动或停止操作，已暂停。';
   },{capture:true,passive:true});
   globalThis.FullPageCollector={version,inspect,move,prepare,cleanup,choose,
+    frameShell({attribute,background,hideOverlays}){
+      cleanup();const frame=ArchiveScrollTargets.elements().find(e=>e.hasAttribute(attribute));
+      if(!frame||frame.tagName!=='IFRAME')throw new Error('内嵌正文已被替换，请从顶部创建新任务。');
+      const old=selected;selected=frame;restore.push(()=>{selected=old;});
+      backgroundMode=background===true;running=true;overlays.start(hideOverlays!==false);assert();overlays.check();
+      return true;
+    },
+    shellCheck(){assert();overlays.sync();overlays.check();return {hiddenOverlays:overlays.hidden.size,revision:overlays.revision};},
     classicPrepare(options){const old=selected;selected=null;try{const info=prepare({top:true,background:true,wholeDocument:true,hideOverlays:options?.hideOverlays});restore.push(()=>{selected=old;});return info;}catch(e){selected=old;throw e;}},
     classicCheck(){overlays.sync();overlays.check();return true;},
     exclude(){return choose('exclude');},clearExclusions(){cleanup();overlays.clear();return true;},
     reset(){cleanup();selected=null;selectionMode='auto';selectionKey='document';return true;},
-    scrollTargets(){const found=ArchiveScrollTargets.candidates();return {internal:found.length>0,documentScrollable:ArchiveScrollTargets.documentScrollable()};},
+    scrollTargets(){const found=ArchiveScrollTargets.candidates();return {internal:found.length>0,documentScrollable:ArchiveScrollTargets.documentScrollable(),embedded:ArchiveScrollTargets.embedded()};},
     info(){return {token,title:document.title,url:location.href,visibility:document.visibilityState,viewport:{width:innerWidth,height:innerHeight,dpr:devicePixelRatio},selectionKey,selectionMode,selected:!isDocument(root()),running,manualExclusions:overlays.count(),exclusionKey:overlays.key};}
   };
 })();

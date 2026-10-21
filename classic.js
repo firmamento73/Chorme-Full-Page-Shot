@@ -16,8 +16,8 @@ async function startClassic(request){
   if(classicTasks.has(tab.id)||[...tasks.values()].some(s=>s.tabId===tab.id))throw new Error('此页面正在截图或采集，请等待完成或先暂停。');
   await inject(tab.id);
   const layout=await page(tab.id,'scrollTargets');
-  if(layout.internal&&!layout.documentScrollable){
-    const reason='正文位于内部滚动区域，F12 无法完整截取。请手动切换到滚动归档。';
+  if((layout.internal||layout.embedded)&&!layout.documentScrollable){
+    const reason=layout.embedded?'正文位于内嵌页面，F12 无法完整截取其内部内容。请手动切换到滚动归档。':'正文位于内部滚动区域，F12 无法完整截取。请手动切换到滚动归档。';
     await classicPhase({tabId:tab.id,url:tab.url,title:tab.title||'网页'},reason,'error');
     throw new Error(reason);
   }

@@ -1,8 +1,8 @@
 <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><title>滚动归档</title><link rel="stylesheet" href="ui.css"></head><body class="popup">
-<header class="brand"><img src="icons/icon-48.png" width="36" height="36" alt=""><div><h1>整页截图 · 滚动归档</h1><p class="muted">2.2.3 · 选择适合页面的截图方式</p></div></header>
+<header class="brand"><img src="icons/icon-48.png" width="36" height="36" alt=""><div><h1>整页截图 · 滚动归档</h1><p class="muted">2.2.4 · 选择适合页面的截图方式</p></div></header>
 <div class="mode-switch" role="group" aria-label="截图方式"><button id="modeScroll" aria-pressed="true">滚动归档</button><button id="modeClassic" aria-pressed="false">F12 整页截图</button></div>
 <section id="classicPanel" hidden>
-<p id="classicHint" class="warning" hidden>正文在内部滚动区域，F12 只能截到一屏。无法完整截取，请手动切换到滚动归档。</p>
+<p id="classicHint" class="warning" hidden>正文在内部滚动区域或内嵌页面，F12 只能截到当前显示部分。无法完整截取，请手动切换到滚动归档。</p>
 <p>与 F12 的「Capture full size screenshot」使用同一截图接口，一次生成整页 PNG。</p>
 <label><input id="classicPreload" type="checkbox" checked> 截图前预滚动，触发懒加载</label>
 <label><input id="classicHide" type="checkbox" checked> 隐藏悬浮控件（结束后恢复）</label>
