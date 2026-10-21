@@ -7,7 +7,7 @@ const tabEvent=name=>({addListener:fn=>{(testTabEvents[name]||=[]).push(fn);}});
 globalThis.chrome={
  runtime:{id:'test',getURL:path=>location.origin+'/'+path,onMessage:{addListener:fn=>{globalThis.testMessageListener=fn;}},sendMessage:async message=>bridge('send',message)},
  scripting:{insertCSS:async request=>bridge('insertCSS',request),removeCSS:async request=>bridge('removeCSS',request),executeScript:async request=>bridge('script',{...request,func:request.func?.toString()})},
- debugger:{attach:async target=>bridge('attach',target),detach:async target=>bridge('detach',target),sendCommand:async(target,method,params)=>bridge('command',{target,method,params}),onDetach:{addListener:()=>{}}},
+ debugger:{attach:async target=>bridge('attach',target),detach:async target=>bridge('detach',target),sendCommand:async(target,method,params)=>bridge('command',{target,method,params}),onDetach:{addListener:()=>{}},onEvent:{addListener:fn=>{(globalThis.testDebugEvents||=new Set()).add(fn);},removeListener:fn=>globalThis.testDebugEvents?.delete(fn)}},
  tabs:{get:async id=>bridge('tab',id),query:async request=>bridge('query',request),create:async request=>bridge('create',request),captureVisibleTab:async(windowId,options)=>bridge('visible',{windowId,options}),onActivated:tabEvent('activated'),onUpdated:tabEvent('updated'),onRemoved:tabEvent('removed'),onDetached:tabEvent('detached'),onAttached:tabEvent('attached')},
  windows:{get:async id=>({id,focused:true,state:'normal',...globalThis.testWindowState})},
  storage:{local:{set:async()=>{},get:async()=>({})}},

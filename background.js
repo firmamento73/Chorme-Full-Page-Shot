@@ -1,6 +1,7 @@
 importScripts('core.js','db.js','seams.js');
 const C=ArchiveCore,DB=ArchiveDB,tasks=new Map();
-importScripts('output.js','capture-backend.js','classic.js');
+importScripts('output.js','capture-backend.js','frames.js','classic.js');
+const frameRoutes=new Map();
 const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function internal(sender) {return sender.id===chrome.runtime.id&&sender.url?.startsWith(chrome.runtime.getURL(''));}
 async function bounded(label,fn,limit=15000) {
@@ -10,6 +11,8 @@ async function bounded(label,fn,limit=15000) {
 }
 async function inject(tabId) {await bounded('载入采集组件',()=>chrome.scripting.executeScript({target:{tabId},files:['overlays.js','scroll-target.js','collector.js']}));}
 async function page(tabId,action,arg) {
+  const frame=frameRoutes.get(tabId);
+  if(frame&&['inspect','move'].includes(action))return frame.call(action,arg);
   const result=await bounded('检查网页',()=>chrome.scripting.executeScript({target:{tabId},func:(action,arg)=>{
     try {return {ok:true,value:globalThis.FullPageCollector[action](arg)};}catch(e){return {ok:false,error:e.message};}
   },args:[action,arg??null]}));
@@ -170,7 +173,7 @@ async function capture(job,state,snapshot,known) {
   throw new Error('截图前后布局持续变化，已暂停；当前不稳定片段未计入结果。');
 }
 async function run(job,state,resume) {
-  let attached=false,prepared=false,overlayCSS=null,focusEmulated=false;
+  let attached=false,prepared=false,overlayCSS=null,focusEmulated=false,frame=null;
   try {
     await inject(job.tabId);
     const info=await waitForStart(job,state);
@@ -198,11 +201,24 @@ async function run(job,state,resume) {
       catch(e){throw new Error('无法启用后台采集，请更新 Chrome 或取消“切换标签页后继续采集”后重试。'+e.message);}
     }
     await phase(job,'正在等待截图提示栏和页面尺寸稳定');
-    await waitForViewport(job,state);
+    const settled=await waitForViewport(job,state);
     prepared=true;
-    const preparedInfo=await page(job.tabId,'prepare',{resolveTarget:!resume||!sameDocument,top:!resume||!sameDocument||!job.last,position:sameDocument?job.last?.position:undefined,hideOverlays:job.options.hideOverlays,background:job.options.background!==false});
+    const prepareOptions={resolveTarget:!resume||!sameDocument,top:!resume||!sameDocument||!job.last,position:sameDocument?job.last?.position:undefined,hideOverlays:job.options.hideOverlays,background:job.options.background!==false};
+    const targets=await page(job.tabId,'scrollTargets');
+    let preparedInfo;
+    if(settled.selectionMode==='auto'&&targets.embedded&&!targets.documentScrollable){
+      if(resume&&job.last&&!job.frameSource)throw new Error('正文已从普通页面变成内嵌页面，请从顶部创建新任务，避免混合不同区域。');
+      if(visible)throw new Error('正文位于内嵌页面，前台兼容截图暂不支持其滚动。请关闭占用调试连接的工具、取消前台兼容截图后重新开始。');
+      await phase(job,'正在识别内嵌正文的滚动区域');
+      frame=await ArchiveFrames.open(job.tabId,(action,arg)=>page(job.tabId,action,arg));
+      preparedInfo={...settled,...await frame.prepare(prepareOptions,resume&&job.last?job.frameSource:null)};
+      frameRoutes.set(job.tabId,frame);job.frameSource=frame.identity;
+    }else{
+      if(resume&&job.last&&job.frameSource)throw new Error('原内嵌正文已改变，请从顶部创建新任务。');
+      preparedInfo=await page(job.tabId,'prepare',prepareOptions);
+    }
     overlayCSS=preparedInfo.overlayCSS;
-    await bounded('应用浮层过滤',()=>chrome.scripting.insertCSS({target:{tabId:job.tabId},css:overlayCSS,origin:'USER'}));
+    if(overlayCSS)await bounded('应用浮层过滤',()=>chrome.scripting.insertCSS({target:{tabId:job.tabId},css:overlayCSS,origin:'USER'}));
     job.viewport=preparedInfo.viewport;job.documentToken=preparedInfo.token;job.selection=preparedInfo.selection;job.selectionKey=preparedInfo.selectionKey;job.exclusionKey=preparedInfo.exclusionKey;job.manualExclusions=preparedInfo.manualExclusions;
     const known=new Map((await DB.list('items',job.id)).map(i=>[i.noteId,i]));
     let idle=0,cycles=0,snapshot;
@@ -235,6 +251,8 @@ async function run(job,state,resume) {
   } catch(e) {
     job.status=state.finish?'stopped':'paused';job.reason=e.message;
   } finally {
+    if(frame)try{await frame.close();}catch{}
+    frameRoutes.delete(job.tabId);
     if(prepared)try{await page(job.tabId,'cleanup');}catch{}
     if(overlayCSS)try{await chrome.scripting.removeCSS({target:{tabId:job.tabId},css:overlayCSS,origin:'USER'});}catch{}
     if(focusEmulated)try{await bounded('恢复标签页绘制',()=>chrome.debugger.sendCommand({tabId:job.tabId},'Emulation.setFocusEmulationEnabled',{enabled:false}),3000);}catch{}

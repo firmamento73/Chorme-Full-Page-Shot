@@ -10,7 +10,7 @@ for icons in [manifest['icons'],manifest['action']['default_icon']]:
   assert data[:8]==b'\x89PNG\r\n\x1a\n'
   assert int.from_bytes(data[16:20],'big')==int(size) and int.from_bytes(data[20:24],'big')==int(size)
 files=['manifest.json','background.js','classic.js','collector.js','overlays.js','core.js','seams.js','db.js','popup.html','popup.js','review.html','review.js','export.js','png-stream.js','ui.css','vendor/pdf-lib.min.js','vendor/pdf-lib-LICENSE.md','README.md','README.en.md','CHANGELOG.md','测试记录.md','LICENSE']
-files += ['scroll-target.js','capture-backend.js','output.js','settings.html','settings.js']
+files += ['scroll-target.js','capture-backend.js','frames.js','output.js','settings.html','settings.js']
 files += [str(path.relative_to(root)) for path in sorted((root/'icons').glob('*.png'))]
 output=root/'dist'/f'fullpage-shot-{manifest["version"]}.zip';output.parent.mkdir(exist_ok=True)
 with zipfile.ZipFile(output,'w',zipfile.ZIP_DEFLATED) as archive:

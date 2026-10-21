@@ -8,7 +8,7 @@ from playwright.async_api import async_playwright
 from PIL import Image,ImageChops
 import fitz
 ROOT=Path(__file__).resolve().parents[1]
-OUTPUT=ROOT/'dist'/('output-artifacts' if os.environ.get('BROWSER_TEST_OUTPUT') else 'compat-artifacts' if os.environ.get('BROWSER_TEST_COMPAT') else 'dashboard-artifacts' if os.environ.get('BROWSER_TEST_DASHBOARD') else 'classic-artifacts' if os.environ.get('BROWSER_TEST_CLASSIC') else 'seam-artifacts' if os.environ.get('BROWSER_TEST_SEAMS') else 'independent-artifacts' if os.environ.get('BROWSER_TEST_INDEPENDENT') else 'overlay-artifacts' if os.environ.get('BROWSER_TEST_OVERLAYS') else 'test-artifacts')
+OUTPUT=ROOT/'dist'/('frame-artifacts' if os.environ.get('BROWSER_TEST_FRAMES') else 'output-artifacts' if os.environ.get('BROWSER_TEST_OUTPUT') else 'compat-artifacts' if os.environ.get('BROWSER_TEST_COMPAT') else 'dashboard-artifacts' if os.environ.get('BROWSER_TEST_DASHBOARD') else 'classic-artifacts' if os.environ.get('BROWSER_TEST_CLASSIC') else 'seam-artifacts' if os.environ.get('BROWSER_TEST_SEAMS') else 'independent-artifacts' if os.environ.get('BROWSER_TEST_INDEPENDENT') else 'overlay-artifacts' if os.environ.get('BROWSER_TEST_OVERLAYS') else 'test-artifacts')
 class Quiet(http.server.SimpleHTTPRequestHandler):
  def log_message(self,*args):pass
 async def main():
@@ -19,8 +19,14 @@ async def main():
  threading.Thread(target=server.serve_forever,daemon=True).start()
  origin=f'http://127.0.0.1:{server.server_port}'
  async with async_playwright() as p:
-  browser=await p.chromium.launch(executable_path=os.environ.get('CHROMIUM_BINARY','/usr/lib/chromium/chromium'),headless=not bool(os.environ.get('BROWSER_TEST_HEADED')),args=['--no-sandbox','--disable-dev-shm-usage','--disable-background-timer-throttling','--disable-renderer-backgrounding'])
-  context=await browser.new_context(viewport={'width':1200,'height':900},device_scale_factor=1.25)
+  transport=None;debug_args=[]
+  if os.environ.get('BROWSER_TEST_FRAMES'):
+   import socket,urllib.request,importlib.util
+   with socket.socket() as sock:sock.bind(('127.0.0.1',0));debug_port=sock.getsockname()[1]
+   debug_args=[f'--remote-debugging-port={debug_port}','--site-per-process']
+   if os.environ.get('FRAME_NATIVE_SCALE'):debug_args+=['--force-device-scale-factor=1.25','--window-size=1200,1000']
+  browser=await p.chromium.launch(executable_path=os.environ.get('CHROMIUM_BINARY','/usr/lib/chromium/chromium'),headless=not bool(os.environ.get('BROWSER_TEST_HEADED')),args=debug_args+['--no-sandbox','--disable-dev-shm-usage','--disable-background-timer-throttling','--disable-renderer-backgrounding'])
+  context=await browser.new_context(no_viewport=True) if os.environ.get('FRAME_NATIVE_SCALE') else await browser.new_context(viewport={'width':1200,'height':900},device_scale_factor=1 if os.environ.get('BROWSER_TEST_FRAMES') else 1.25)
   pages,sessions,next_id,download_id={},{},1,0
   flags={'active':None,'infobar':False}
   original_viewports={}
@@ -62,17 +68,22 @@ async def main():
    if t=='attach':
     flags['attachCalls']=flags.get('attachCalls',0)+1
     if flags.get('rejectAttach'):raise RuntimeError(flags['rejectAttach'])
-    ident=a['tabId'];sessions[ident]=await context.new_cdp_session(pages[ident])
+    ident=a['tabId']
+    if transport:return await transport.attach(ident,pages[ident],context)
+    sessions[ident]=await context.new_cdp_session(pages[ident])
     if flags['infobar']:
      original_viewports[ident]=pages[ident].viewport_size.copy()
      await pages[ident].set_viewport_size({'width':original_viewports[ident]['width'],'height':original_viewports[ident]['height']-40})
     return None
    if t=='detach':
-    ident=a['tabId'];session=sessions.pop(ident,None)
+    ident=a['tabId']
+    if transport:return await transport.detach(ident)
+    session=sessions.pop(ident,None)
     if session:await session.detach()
     if ident in original_viewports:await pages[ident].set_viewport_size(original_viewports.pop(ident))
     return None
    if t=='command':
+    if transport:return await transport.command(a['target'],a['method'],a.get('params',{}))
     result=await sessions[a['target']['tabId']].send(a['method'],a.get('params',{}))
     if a['method']=='Page.captureScreenshot' and flags.get('corruptNextSeam') and await pages[a['target']['tabId']].evaluate('scrollY>0'):
      flags['corruptNextSeam']=False;flags['corruptions']=flags.get('corruptions',0)+1
@@ -105,6 +116,10 @@ async def main():
   await context.expose_binding('testChromeBridge',bridge)
   await context.add_init_script("if(['/review.html','/popup.html','/settings.html'].includes(location.pathname)){"+(ROOT/'tests'/'chrome-shim.js').read_text()+"}")
   control=await context.new_page();await control.goto(origin+'/tests/runner.html')
+  if os.environ.get('BROWSER_TEST_FRAMES'):
+   spec=importlib.util.spec_from_file_location('cdp_transport',ROOT/'tests/cdp-transport.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+   endpoint=json.load(urllib.request.urlopen(f'http://127.0.0.1:{debug_port}/json/version'))['webSocketDebuggerUrl']
+   transport=await module.Transport.connect(endpoint,control)
   async def send(m):
    result=await control.evaluate('m=>testSend(m)',m)
    assert result.get('ok'),result
@@ -137,6 +152,86 @@ async def main():
    assert all(not t['incomplete'] for t in data['tiles'])
    results.append({'case':name,'status':job['status'],'tiles':len(data['tiles']),'items':len(data['items']),'strips':job['strip']+1})
    print('PASS',results[-1],flush=True)
+  if os.environ.get('BROWSER_TEST_FRAMES'):
+   async def embedded(mode):
+    page=await context.new_page();ident=await register(page);await page.goto(origin+'/tests/frame-fixture.html?mode='+mode+'&test='+str(ident))
+    for _ in range(100):
+     leaves=[f for f in page.frames if 'leaf=1' in f.url]
+     if leaves and await leaves[-1].locator('#body').count():break
+     await asyncio.sleep(.05)
+    await send({'type':'INFO','tabId':ident});return page,ident,leaves[-1]
+   async def verify_frame(page,ident,leaf,job,label):
+    assert job['status']=='complete',job
+    assert job['tileCount']>1 and job['strip']==0 and job['selection']=='内嵌正文',job
+    assert await page.evaluate('scrollY')==0
+    assert await leaf.locator('#body').evaluate('e=>e.scrollTop')>0
+    for frame in page.frames:
+     assert await frame.locator('.help').evaluate('e=>getComputedStyle(e).visibility')=='visible'
+     assert not await frame.evaluate('()=>[...document.querySelectorAll("*")].some(e=>[...e.attributes].some(a=>a.name.startsWith("data-fps-")))')
+    assert await leaf.locator('#body').evaluate('e=>getComputedStyle(e).scrollSnapType')=='y mandatory'
+    review=await context.new_page();await review.goto(origin+'/review.html?job='+job['id']);await review.wait_for_function('typeof job!=="undefined" && job && tiles.length>0')
+    await review.click('#png');await review.wait_for_function('!busy && document.querySelector("#status").textContent.includes("已交给")',timeout=90000)
+    image=Image.open(next(OUTPUT.glob('*_'+job['id'][:8]+'_连续长图.png'))).convert('RGB')
+    scale=job['viewport']['dpr'];assert abs(scale-job['last']['captureScale'])<.005
+    assert image.height==round(4200*scale),(image.size,scale)
+    expected_width=await leaf.locator('#body').evaluate('e=>e.clientWidth');assert abs(image.width-expected_width*scale)<=1,(image.size,expected_width,scale)
+    for row in range(80):
+     for offset in [0,26,51]:
+      point=(round(12*scale),round((row*52+offset)*scale));assert image.getpixel(point)==(80+row,140+row%70,210-row),(label,row,offset,image.getpixel(point))
+    results.append({'case':label,'tiles':job['tileCount'],'strips':1,'size':image.size,'rowsVerified':80,'dpr':job['viewport']['dpr']});print('PASS',results[-1],flush=True);await review.close()
+   for mode in os.environ.get('FRAME_CASES','same,cross,nested,canvas').split(','):
+    before=transport.child_commands;page,ident,leaf=await embedded(mode)
+    await start(ident,overview=False,background=True);job=await wait_job(ident)
+    await verify_frame(page,ident,leaf,job,mode+' frame: correct scroll target, crop, seamless export and cleanup')
+    if mode in ['cross','nested']:assert transport.child_commands>before,'Cross-origin fixture did not exercise child-session commands'
+   if not os.environ.get('FRAME_CASES'):
+    page,ident,leaf=await embedded('cross');await start(ident,overview=False,background=True)
+    first=await wait_job(ident,tiles_at_least=2);await send({'type':'PAUSE','jobId':first['id']});paused=await wait_job(ident)
+    assert paused['tileCount']>=2 and paused['status']=='paused'
+    flags['active']=False
+    await send({'type':'START','tabId':ident,'resume':paused['id'],'options':{'background':True}});job=await wait_job(ident)
+    await verify_frame(page,ident,leaf,job,'cross-origin pause/resume while source tab is inactive')
+    flags['active']=None
+    # Refresh only the inner frame. Never mix a different document into a saved strip.
+    await leaf.goto(leaf.url+'&replacement=1');await leaf.locator('#body').wait_for()
+    await send({'type':'START','tabId':ident,'resume':job['id']});refreshed=await wait_job(ident)
+    assert refreshed['status']=='paused' and refreshed['tileCount']==job['tileCount'] and '内嵌正文已刷新' in refreshed['reason'],refreshed
+    results.append({'case':'inner-frame refresh rejects resume without appending pixels'})
+    page,ident=await fixture('lazy',36);await start(ident,overview=False,background=True)
+    first=await wait_job(ident,tiles_at_least=2);await send({'type':'PAUSE','jobId':first['id']});old_job=await wait_job(ident)
+    await page.evaluate("""url=>{document.body.replaceChildren();for(const e of [document.documentElement,document.body]){e.style.height='100%';e.style.overflow='hidden';}const f=document.createElement('iframe');f.style.cssText='position:fixed;inset:0;width:100%;height:100%;border:0';f.src=url;document.body.append(f);}""",origin+'/tests/frame-fixture.html?leaf=1&test='+str(ident))
+    for _ in range(100):
+     if len(page.frames)>1 and await page.frames[-1].locator('#body').count():break
+     await asyncio.sleep(.05)
+    await send({'type':'START','tabId':ident,'resume':old_job['id']});new_layout=await wait_job(ident)
+    assert new_layout['tileCount']==old_job['tileCount'] and '普通页面变成内嵌页面' in new_layout['reason'],new_layout
+    results.append({'case':'same-URL app transition from ordinary document to iframe refuses to mix capture regions'})
+    # Same-document routing changes must also stop a running capture.
+    page,ident,leaf=await embedded('cross');await start(ident,overview=False,background=True)
+    first=await wait_job(ident,tiles_at_least=2);await leaf.evaluate('location.hash="different-document"');changed_job=await wait_job(ident)
+    assert changed_job['status']=='paused' and '内嵌正文已刷新' in changed_job['reason'],changed_job
+    results.append({'case':'inner-frame URL change stops capture even when the outer URL is unchanged'})
+    page,ident,leaf=await embedded('cross');await start(ident,overview=False,background=True)
+    first=await wait_job(ident,tiles_at_least=2);await leaf.locator('#body').hover();await page.mouse.wheel(0,100);interrupted=await wait_job(ident)
+    assert interrupted['status']=='paused' and '手动滚动' in interrupted['reason'],interrupted
+    assert await leaf.locator('.help').evaluate('e=>getComputedStyle(e).visibility')=='visible'
+    results.append({'case':'trusted wheel inside a cross-origin iframe pauses and restores floating UI'})
+    for mode,reason in [('clipped','裁切'),('transformed','缩放'),('two','多个')]:
+     page,ident,leaf=await embedded(mode);await start(ident,overview=False,background=True);job=await wait_job(ident)
+     assert job['status']=='paused' and job['tileCount']==0 and reason in job['reason'],job
+     assert await page.locator('.help').evaluate('e=>getComputedStyle(e).visibility')=='visible'
+     results.append({'case':mode+' iframe refuses unsafe geometry/ambiguous target before committing pixels'})
+    page,ident,leaf=await embedded('cross');flags['visibleTab']=ident
+    await start(ident,overview=False,forceVisible=True);job=await wait_job(ident)
+    assert job['tileCount']==0 and '前台兼容截图暂不支持' in job['reason'],job
+    flags.pop('visibleTab')
+    result=await control.evaluate('m=>testSend(m)',{'type':'CLASSIC_START','tabId':ident})
+    assert not result['ok'] and '内嵌页面' in result['error'],result
+    assert (await send({'type':'LAST','tabId':ident}))['id']==job['id']
+    results.append({'case':'visible-only capture and F12 report iframe limitations without silently starting another mode'})
+   assert not transport.roots
+   (OUTPUT/('frame-native-scale-results.json' if os.environ.get('FRAME_NATIVE_SCALE') else 'frame-results.json')).write_text(json.dumps({'browser':browser.version,'cases':results,'childSessionCommands':transport.child_commands,'method':'Real isolated worlds, OOPIF sessions, CDP screenshots and exports; extension API bridge, not installed-extension or live WeChat Drive testing.'},ensure_ascii=False,indent=2))
+   await transport.close();await browser.close();server.shutdown();return
   if os.environ.get('BROWSER_TEST_OUTPUT'):
    async def classic(ident):
     await send({'type':'CLASSIC_START','tabId':ident,'options':{'preload':False}})

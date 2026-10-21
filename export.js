@@ -62,7 +62,7 @@
     if(options.mode==='continuous') {
       tiles=await stitch(tiles,progress);
       const whole=C.continuous(tiles,options.allowIndependent===true);
-      const doc=await PDFLib.PDFDocument.create();doc.setTitle(job.title);doc.setCreator('Full Page Shot 2.2.3');doc.setSubject(`来源：${job.url}\n状态：${job.reason}`);
+      const doc=await PDFLib.PDFDocument.create();doc.setTitle(job.title);doc.setCreator('Full Page Shot 2.2.4');doc.setSubject(`来源：${job.url}\n状态：${job.reason}`);
       const scale=Math.min(595.28/whole.width,14000/whole.height),page=doc.addPage([whole.width*scale,whole.height*scale]);
       let y=whole.height;
       for(let i=0;i<tiles.length;i++){
@@ -81,7 +81,7 @@
     for(let i=0;i<plans.length;i++){
       const plan=plans[i],size=plan.width*plan.height;
       if(pdf&&(pixels+size>48000000||pages>=12))await finish();
-      if(!pdf){pdf=await PDFLib.PDFDocument.create();pdf.setTitle(job.title);pdf.setSubject(`来源：${job.url}\n状态：${job.reason}`);pdf.setCreator('Full Page Shot 2.2.3');}
+      if(!pdf){pdf=await PDFLib.PDFDocument.create();pdf.setTitle(job.title);pdf.setSubject(`来源：${job.url}\n状态：${job.reason}`);pdf.setCreator('Full Page Shot 2.2.4');}
       progress(`正在生成 PDF ${i+1}/${plans.length}`);
       const canvas=await render(plan),blob=await toBlob(canvas),image=await pdf.embedPng(await blob.arrayBuffer());
       const pageWidth=595.28,pageHeight=841.89,imageHeight=pageWidth*plan.height/plan.width;
